@@ -33,6 +33,47 @@ final class Input: UITextField {
     var iconLeadingInset: CGFloat? { didSet { updateIconFrame() } }
     var highlightsIconOnFocus = true { didSet { updateSelectState() } }
 
+    /// app.css: `input:active:not(.no-scale) { transition: all 0.1s ease-in-out; transform: scale(0.98) }`, and for
+    /// a `no-scale` field `.scale-parent:has(.no-scale:active)`, which scales the box around it. The view to
+    /// scale while the field is pressed: the field itself, or its box. A field with none is not scaled.
+    var pressScaleTarget: UIView?
+    private var pressAnimator: UIViewPropertyAnimator?
+    private weak var pressedTarget: UIView?
+
+    private func setPressed(_ pressed: Bool) {
+        pressAnimator?.stopAnimation(true)
+        pressAnimator = nil
+        if pressed {
+            guard isEnabled, let target = pressScaleTarget else { return }
+            pressedTarget = target
+            let animator = UIViewPropertyAnimator(duration: 0.1,
+                                                  controlPoint1: CGPoint(x: 0.42, y: 0),
+                                                  controlPoint2: CGPoint(x: 0.58, y: 1)) {
+                target.transform = CGAffineTransform(scaleX: 0.98, y: 0.98)
+            }
+            pressAnimator = animator
+            animator.startAnimation()
+        } else if let target = pressedTarget {
+            pressedTarget = nil
+            UIView.performWithoutAnimation { target.transform = .identity }
+        }
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesBegan(touches, with: event)
+        setPressed(true)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        setPressed(false)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
+        setPressed(false)
+    }
+
     private func updateIconFrame() {
         guard let iconLeadingInset else { return }
         iconImageView?.contentMode = .scaleAspectFit

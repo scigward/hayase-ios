@@ -29,15 +29,20 @@ Settings → Reset Everything clears that with the rest, so it comes back after 
   other two are `secondary` (muted icon) until reached, then `default` with a `text-background` icon.
 - The check spinner is a ring with four equal borders (`border-border border-b-border`), so `animate-spin` turns
   it without anything showing; it is drawn as the static ring.
-- The success and error marks are lucide icons with `strokeWidth='4px'` in a 16px badge with `p-[3px]`: the svg
-  keeps 24px (a flex item cannot shrink below its specified size), centred on the badge and spilling over it.
-  The warning mark is its own 2x7 svg in black.
+- The success and error marks are lucide icons with `strokeWidth='4px'` in a 16px badge with `p-[3px]` and a
+  1px border, so in an 8px box: they are drawn at a third of their size (stroke 4/3) inside the circle. The
+  first version drew them at 24px, spilling over the badge, which was wrong. The warning mark is its own 2x7 svg
+  in black, which fits as it is.
 - The port-forwarding help icon is `size-4` with `border-b`: 16px high including its 1px border, so the icon is
   15px.
 - `SettingCard` titles are 21px high, not 20: `leading-[unset]` on the label leaves the line to `html`'s
   `line-height: 1.5` (corrected for every settings card).
 - Transfer Speed Limit's box is `self-baseline`, so from `md` it sits at the top of its card's row, not the middle.
   Its box has a border of its own (130px across).
+- Every `input` scales to 98% while it is pressed (`app.css`); the speed field is `no-scale` in a `scale-parent`,
+  so it is its box that scales. The read-only download path is clipped where it ends, with no ellipsis.
+- The checkbox is placed by the page, so it has no constraints of its own (a constrained view with no position sat
+  in the top corner of the page).
 - The welcome column is `justify-center`: a window too short for it loses the top, which cannot be scrolled to.
   This is kept.
 - The extensions page sets `lookupPreference` whenever it is made (`quality` after a forwarded port, else

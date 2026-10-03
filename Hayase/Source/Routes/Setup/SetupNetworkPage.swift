@@ -58,6 +58,7 @@ final class SetupNetworkPage: SetupStepView {
         let speedInput = SettingsInputControl(value: defaults.string(forKey: Self.torrentSpeedKey) ?? "40",
                                               placeholder: "40", width: 130, numeric: true, suffix: "Mb/s")
         bind(speedInput, key: Self.torrentSpeedKey, fallback: "40", range: 1...50, allowsFraction: true)
+        speedInput.input.pressScaleTarget = speedInput      // `no-scale` in a `scale-parent`
         let speedCard = SettingsCardView(
             title: "Transfer Speed Limit",
             description: "Download/Upload speed limit for torrents, higher values increase CPU usage, and values higher than your storage write speeds will quickly fill up RAM.",
@@ -66,6 +67,7 @@ final class SetupNetworkPage: SetupStepView {
 
         // Max Number of Connections
         bind(maxConnsInput, key: Self.maxConnsKey, fallback: "80", range: 1...512)
+        maxConnsInput.input.pressScaleTarget = maxConnsInput.input
         let connsCard = SettingsCardView(
             title: "Max Number of Connections",
             description: "Number of peers per torrent. Higher values will increase download speeds but might quickly fill up available ports if your ISP limits the maximum allowed number of open connections.",
@@ -78,6 +80,7 @@ final class SetupNetworkPage: SetupStepView {
         bind(portInput, key: Self.torrentPortKey, fallback: "0", range: 0...65535) { [weak self] in
             self?.portMayHaveChanged()
         }
+        portInput.input.pressScaleTarget = portInput.input
         let portCard = SettingsCardView(
             title: "Forwarded Torrent Port",
             description: "Forwarded port used for incoming torrent connections. 0 automatically finds an open unused port. Change this to a specific port if you forwarded manually, or if you use a VPN.",

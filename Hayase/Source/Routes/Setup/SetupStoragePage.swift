@@ -36,6 +36,7 @@ final class SetupStoragePage: SetupStepView {
 
         // <Input … readonly class='sm:w-60 rounded-r-none pointer-events-none' />
         pathInput.input.isUserInteractionEnabled = false
+        showPath(shownPath)
         pathInput.input.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
         // <SingleCombo class='w-32 shrink-0 border-input border rounded-l-none' />
         let stored = UserDefaults.standard.string(forKey: Self.locationKey) ?? "cache"
@@ -101,10 +102,21 @@ final class SetupStoragePage: SetupStepView {
     /// `$settings.torrentPath` changed: the field shows it and the space is checked again.
     private func pathChanged() {
         let path = TorrentBackendSettings().path
-        pathInput.input.text = path
+        showPath(path)
         guard path != shownPath else { return }
         shownPath = path
         footer.setChecks([checkSpaceRequirements()])
+    }
+
+    /// An input does not put an ellipsis where its text ends: the part that does not fit is clipped.
+    private func showPath(_ path: String) {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byClipping
+        pathInput.input.attributedText = NSAttributedString(string: path, attributes: [
+            .font: UIFont.nunito(ofSize: 14, weight: .regular),
+            .foregroundColor: UIColor.HayaseTheme.foreground,
+            .paragraphStyle: style,
+        ])
     }
 
     // MARK: Checks

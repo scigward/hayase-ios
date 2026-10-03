@@ -24,7 +24,6 @@ final class Checkbox: UIControl {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        translatesAutoresizingMaskIntoConstraints = false
         layer.cornerRadius = 4          // rounded-sm: calc(var(--radius) - 4px)
         layer.borderWidth = 1
         layer.borderColor = UIColor.HayaseTheme.primary.cgColor
@@ -42,11 +41,11 @@ final class Checkbox: UIControl {
         isAccessibilityElement = true
         accessibilityTraits = .button
         addTarget(self, action: #selector(toggle), for: .touchUpInside)
-        NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: Self.side),
-            heightAnchor.constraint(equalToConstant: Self.side),
-        ])
         apply()
+    }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: Self.side, height: Self.side)
     }
 
     required init?(coder: NSCoder) {

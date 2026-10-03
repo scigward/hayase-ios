@@ -154,14 +154,12 @@ final class SetupStatusView: UIView {
         switch status {
         case .success:
             backgroundColor = UIColor(red: 0x21 / 255.0, green: 0xb9 / 255.0, blue: 0x59 / 255.0, alpha: 1)   // #21b959
-            // lucide Check `M20 6 9 17l-5-5` with strokeWidth='4px', in the badge's `text-primary-foreground`.
-            // The svg keeps its 24pt size, which the 8pt content box of the badge cannot shrink, so it
-            // is centred on the badge and spills over its edge.
+            // lucide Check `M20 6 9 17l-5-5` with strokeWidth='4px', in the badge's `text-primary-foreground`
             let path = UIBezierPath()
             path.move(to: CGPoint(x: 20, y: 6))
             path.addLine(to: CGPoint(x: 9, y: 17))
             path.addLine(to: CGPoint(x: 4, y: 12))
-            show(path, offset: CGPoint(x: -4, y: -4), color: UIColor.HayaseTheme.primaryForeground, width: 4)
+            showLucide(path, color: UIColor.HayaseTheme.primaryForeground)
         case .warning:
             backgroundColor = UIColor(red: 0xea / 255.0, green: 0xb3 / 255.0, blue: 0x08 / 255.0, alpha: 1)   // #eab308
             // the 2x7 exclamation mark, drawn in black: `M1 6V3.5` and the dot `M1.00098 1H1.00848`
@@ -171,7 +169,7 @@ final class SetupStatusView: UIView {
             path.move(to: CGPoint(x: 1.00098, y: 1))
             path.addLine(to: CGPoint(x: 1.00848, y: 1))
             // centred in the 8pt content box of the badge: (16 - 2) / 2 by (16 - 7) / 2
-            show(path, offset: CGPoint(x: 7, y: 4.5), color: .black, width: 1.5)
+            show(path, scale: 1, offset: CGPoint(x: 7, y: 4.5), color: .black, width: 1.5)
         case .error:
             backgroundColor = UIColor(red: 0xbf / 255.0, green: 0x2c / 255.0, blue: 0x2c / 255.0, alpha: 1)   // #bf2c2c
             // lucide X `M18 6 6 18` and `m6 6 12 12` with strokeWidth='4px'
@@ -180,12 +178,20 @@ final class SetupStatusView: UIView {
             path.addLine(to: CGPoint(x: 6, y: 18))
             path.move(to: CGPoint(x: 6, y: 6))
             path.addLine(to: CGPoint(x: 18, y: 18))
-            show(path, offset: CGPoint(x: -4, y: -4), color: UIColor.HayaseTheme.primaryForeground, width: 4)
+            showLucide(path, color: UIColor.HayaseTheme.primaryForeground)
         }
     }
 
-    private func show(_ path: UIBezierPath, offset: CGPoint, color: UIColor, width: CGFloat) {
-        path.apply(CGAffineTransform(translationX: offset.x, y: offset.y))
+    /// A lucide icon (a 24 unit view box, `strokeWidth='4px'`) in the 8pt box inside the badge's border and
+    /// `p-[3px]`: the svg is a flex item that gives way to the box, so it is drawn at a third of its size,
+    /// with the stroke at a third of 4.
+    private func showLucide(_ path: UIBezierPath, color: UIColor) {
+        let scale: CGFloat = 8 / 24
+        show(path, scale: scale, offset: CGPoint(x: 4, y: 4), color: color, width: 4 * scale)
+    }
+
+    private func show(_ path: UIBezierPath, scale: CGFloat, offset: CGPoint, color: UIColor, width: CGFloat) {
+        path.apply(CGAffineTransform(scaleX: scale, y: scale).concatenating(CGAffineTransform(translationX: offset.x, y: offset.y)))
         glyph.path = path.cgPath
         glyph.strokeColor = color.cgColor
         glyph.lineWidth = width
