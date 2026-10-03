@@ -26,19 +26,41 @@ enum RadixIcons {
                size: size)
     }
 
+    private static let downloadData = "M7.50005 1.04999C7.74858 1.04999 7.95005 1.25146 7.95005 1.49999V8.41359L10.1819 6.18179C10.3576 6.00605 10.6425 6.00605 10.8182 6.18179C10.994 6.35753 10.994 6.64245 10.8182 6.81819L7.81825 9.81819C7.64251 9.99392 7.35759 9.99392 7.18185 9.81819L4.18185 6.81819C4.00611 6.64245 4.00611 6.35753 4.18185 6.18179C4.35759 6.00605 4.64251 6.00605 4.81825 6.18179L7.05005 8.41359V1.49999C7.05005 1.25146 7.25152 1.04999 7.50005 1.04999ZM2.5 10C2.77614 10 3 10.2239 3 10.5V12C3 12.5539 3.44565 13 3.99635 13H11.0012C11.5529 13 12 12.5528 12 12V10.5C12 10.2239 12.2239 10 12.5 10C12.7761 10 13 10.2239 13 10.5V12C13 13.1041 12.1062 14 11.0012 14H3.99635C2.89019 14 2 13.103 2 12V10.5C2 10.2239 2.22386 10 2.5 10Z"
+
+    /// Download: an arrow into a tray. With `strokeWidth` the glyph is also outlined by that much of the
+    /// 15x15 box, as `stroke-width='0.5' stroke='currentColor'` does on the extension search's
+    /// "already downloaded" mark.
+    static func download(size: CGFloat, strokeWidth: CGFloat = 0) -> UIImage {
+        render(downloadData, size: size, strokeWidth: strokeWidth)
+    }
+
+    /// File, the mark of a single episode in the extension search.
+    static func file(size: CGFloat) -> UIImage {
+        render("M3.5 2C3.22386 2 3 2.22386 3 2.5V12.5C3 12.7761 3.22386 13 3.5 13H11.5C11.7761 13 12 12.7761 12 12.5V6H8.5C8.22386 6 8 5.77614 8 5.5V2H3.5ZM9 2.70711L11.2929 5H9V2.70711ZM2 2.5C2 1.67157 2.67157 1 3.5 1H8.5C8.63261 1 8.75979 1.05268 8.85355 1.14645L12.8536 5.14645C12.9473 5.24021 13 5.36739 13 5.5V12.5C13 13.3284 12.3284 14 11.5 14H3.5C2.67157 14 2 13.3284 2 12.5V2.5Z",
+               size: size)
+    }
+
     private static let cache = NSCache<NSString, UIImage>()
 
     /// `fill-rule: evenodd` on a 15x15 view box, as a template image of `size` points.
-    private static func render(_ data: String, size: CGFloat) -> UIImage {
+    private static func render(_ data: String, size: CGFloat, strokeWidth: CGFloat = 0) -> UIImage {
         let side = max(size, 1)
-        let key = "\(data.hashValue)@\(side)" as NSString
+        let key = "\(data.hashValue)@\(side)/\(strokeWidth)" as NSString
         if let cached = cache.object(forKey: key) { return cached }
         let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { renderer in
             let context = renderer.cgContext
             context.scaleBy(x: side / 15, y: side / 15)
             context.addPath(SVGPath.path(data))
             UIColor.black.setFill()
-            context.fillPath(using: .evenOdd)
+            if strokeWidth > 0 {
+                // SVG strokes with a butt cap and a mitre join, which are the context's defaults
+                UIColor.black.setStroke()
+                context.setLineWidth(strokeWidth)
+                context.drawPath(using: .eoFillStroke)
+            } else {
+                context.fillPath(using: .evenOdd)
+            }
         }.withRenderingMode(.alwaysTemplate)
         cache.setObject(image, forKey: key)
         return image

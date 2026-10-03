@@ -96,6 +96,14 @@ final class FullBannerProgressView: UIView, CAAnimationDelegate {
     }
 
     private func apply(animated: Bool) {
+        let slides = animated && bounds.width > 0
+        if slides {
+            // Everything else the banner has changed is laid out first, outside the animation below:
+            // that one is for the badges alone, and anything laid out inside it would slide, too.
+            UIView.performWithoutAnimation {
+                superview?.layoutIfNeeded()
+            }
+        }
         generation += 1
         for (index, slot) in slots.enumerated() {
             let active = index == activeIndex
@@ -107,7 +115,7 @@ final class FullBannerProgressView: UIView, CAAnimationDelegate {
             startFill(fill, from: 0)
         }
         // transition: width .7s ease. Nothing to animate from until the row has been laid out.
-        guard animated, bounds.width > 0 else {
+        guard slides else {
             layoutIfNeeded()
             return
         }

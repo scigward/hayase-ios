@@ -83,12 +83,18 @@ final class BannerBadge: UIControl {
         super.layoutSubviews()
         guard kind == .button else { return }
         let box = UIBezierPath(roundedRect: bounds, cornerRadius: layer.cornerRadius)
-        shadowLayer.frame = bounds
-        shadowLayer.shadowPath = box.cgPath
         let outside = UIBezierPath(rect: bounds.insetBy(dx: -16, dy: -16))
         outside.append(box)
+        // These layers are not a view's own, so Core Animation would slide them into place
+        // over a quarter of a second; the mask going wrong on the way shows the shadow's black
+        // inside the badge.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        shadowLayer.frame = bounds
+        shadowLayer.shadowPath = box.cgPath
         shadowMask.frame = bounds
         shadowMask.path = outside.cgPath
+        CATransaction.commit()
     }
 
     /// shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)

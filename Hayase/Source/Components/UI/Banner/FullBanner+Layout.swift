@@ -13,8 +13,16 @@
 import UIKit
 
 extension FullBannerCell {
-    /// The width of the window's content, which Tailwind's breakpoints are measured against.
-    var viewportWidth: CGFloat { window?.rootViewController?.view.bounds.width ?? bounds.width }
+    /// The width of the window's content, which Tailwind's breakpoints are measured against. A cell
+    /// that is in no window keeps the last width it saw, rather than taking its own, which is
+    /// narrower than the window and would put it in another layout for as long as it is out.
+    var viewportWidth: CGFloat {
+        if let width = window?.rootViewController?.view.bounds.width, width > 0 {
+            lastViewportWidth = width
+            return width
+        }
+        return lastViewportWidth ?? bounds.width
+    }
 
     func applyLayout(forWidth width: CGFloat) {
         let key = width >= 1024 ? 3 : (width >= 768 ? 2 : (width >= 640 ? 1 : 0))

@@ -1846,19 +1846,10 @@ final class TorrentResultCell: UITableViewCell {
         badgeLeadingConstraint.constant = badgeInset
     }
 
-    /// lucide `Download`, drawn thin as `stroke-width='0.5'` at `size-12`: `text-[#53da33] opacity-80`.
-    private static let downloadedIcon: UIImage = {
-        let size: CGFloat = 48
-        return UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { context in
-            context.cgContext.scaleBy(x: size / 24, y: size / 24)
-            UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 0.8).setStroke()
-            let icon = UIBezierPath(cgPath: SVGPath.path("M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"))
-            icon.lineWidth = 0.5
-            icon.lineCapStyle = .round
-            icon.lineJoinStyle = .round
-            icon.stroke()
-        }.withRenderingMode(.alwaysOriginal)
-    }()
+    /// svelte-radix `Download` at `size-12`, with `stroke-width='0.5' stroke='currentColor'`:
+    /// `text-[#53da33] opacity-80`.
+    private static let downloadedIcon: UIImage = RadixIcons.download(size: 48, strokeWidth: 0.5)
+        .withTintColor(UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 0.8), renderingMode: .alwaysOriginal)
 
     func configure(with result: TorrentResult, configs: [String: ExtensionConfig], accent: UIColor = .white,
                    isDownloaded: Bool = false) {
@@ -1889,8 +1880,8 @@ final class TorrentResultCell: UITableViewCell {
             fileIconView.image = UIImage.hayaseFilledIcon("folder", pointSize: 48)?
                 .withTintColor(yellow.withAlphaComponent(0.8), renderingMode: .alwaysOriginal)
         } else {
-            // single episode → file icon (muted)
-            fileIconView.image = UIImage.hayaseIcon("file", pointSize: 48)?
+            // single episode → svelte-radix `File` (muted)
+            fileIconView.image = RadixIcons.file(size: 48)
                 .withTintColor(UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.8), renderingMode: .alwaysOriginal)
         }
 

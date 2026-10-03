@@ -65,6 +65,7 @@ final class FullBannerCell: UICollectionViewCell {
     var bannerHidden = false
     var followingUsersByMediaID: [Int: [AniListUserSummary]] = [:]
     var featuredLayoutKey: Int?
+    var lastViewportWidth: CGFloat?
 
     // MARK: Views
 
@@ -356,32 +357,39 @@ final class FullBannerCell: UICollectionViewCell {
         let item = items[currentIndex]
         onFeaturedChanged?(item.id)
 
-        // Hide both title and clearlogo initially — the ani.zip request resolves which to show.
-        // `{#await episodesCached()}` shows nothing while loading, then the logo or the text.
-        titleLink.titleLabel.content = AniListUtil.title(for: item)
-        titleLink.titleLabel.isHidden = true
-        titleLink.logoView.isHidden = true
-        titleLink.logoView.image = nil
-        // desc(): "No description available." only where AniList has none; the element's white space
-        // collapses, so a paragraph break does not break the line.
-        descriptionLabel.content = item.description.map(CSSText.collapsingWhitespace) ?? "No description available."
-        descriptionLabel.isHidden = false
-
         // `bg-custom` and `!text-custom` are the cover's colour (`--custom`, white without one)
         let customColor = Self.uiColor(fromHex: item.coverColor) ?? .white
-        updateBadges(for: item, customColor: customColor)
+
+        // The new media replaces the old one at once, never sliding: this can run inside an animation
+        // (the badges of the progress row are one), which would carry the title, the badges and the
+        // buttons along with it.
+        UIView.performWithoutAnimation {
+            // Hide both title and clearlogo initially — the ani.zip request resolves which to show.
+            // `{#await episodesCached()}` shows nothing while loading, then the logo or the text.
+            titleLink.titleLabel.content = AniListUtil.title(for: item)
+            titleLink.titleLabel.isHidden = true
+            titleLink.logoView.isHidden = true
+            titleLink.logoView.image = nil
+            // desc(): "No description available." only where AniList has none; the element's white space
+            // collapses, so a paragraph break does not break the line.
+            descriptionLabel.content = item.description.map(CSSText.collapsingWhitespace) ?? "No description available."
+            descriptionLabel.isHidden = false
+
+            updateBadges(for: item, customColor: customColor)
+            // text-contrast: black or white by luminance. select:!bg-custom-600 darkens the play button.
+            let textColor = Self.contrastColor(for: customColor)
+            playButton.restingBackground = customColor
+            playButton.selectedBackground = customColor.withHSLLightness(0.4)
+            playButton.restingTint = textColor
+            playButton.selectedTint = textColor
+            // The icon buttons are currentColor, filled or not, and only turn custom while selected.
+            favoriteButton.selectedTint = customColor
+            bookmarkButton.selectedTint = customColor
+            updateViewerButtons(for: item)
+            updateFollowing(for: item)
+            layoutIfNeeded()
+        }
         progressView.setActive(currentIndex, color: customColor)
-        updateFollowing(for: item)
-        // text-contrast: black or white by luminance. select:!bg-custom-600 darkens the play button.
-        let textColor = Self.contrastColor(for: customColor)
-        playButton.restingBackground = customColor
-        playButton.selectedBackground = customColor.withHSLLightness(0.4)
-        playButton.restingTint = textColor
-        playButton.selectedTint = textColor
-        // The icon buttons are currentColor, filled or not, and only turn custom while selected.
-        favoriteButton.selectedTint = customColor
-        bookmarkButton.selectedTint = customColor
-        updateViewerButtons(for: item)
 
         if fadeIn && !UIAccessibility.isReduceMotionEnabled {
             // The title link (text or logo) and the description carry `fade-in`. A layer
