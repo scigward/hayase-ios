@@ -11,7 +11,7 @@ set of pieces as the interface, one file per piece.
 
 | interface | Swift |
 | --- | --- |
-| `routes/app/home/+page.svelte` | `Routes/App/Home/Page.swift` (`HomeViewController`), `Page+DataSource.swift`, `Page+Banner.swift` |
+| `routes/app/home/+page.svelte` | `Routes/App/Home/HomePage.swift` (`HomeViewController`), `HomePage+DataSource.swift`, `HomePage+Banner.swift` |
 | the section queries in its `<script context='module'>` | `Routes/App/Home/Sections.swift` |
 | the header of each section | `Routes/App/Home/SectionHeader.swift` |
 | `ui/banner/banner.svelte` | `Components/UI/Banner/Banner.swift` |
@@ -79,6 +79,6 @@ Preview card
 
 ## Left as it is
 
-- The cover that hides the banner picture when the page is scrolled past (`Page+Banner.swift`) is a
+- The cover that hides the banner picture when the page is scrolled past (`HomePage+Banner.swift`) is a
   documented stand-in for the 5% opacity of `hideBanner`: it hides the picture entirely instead.
 - `dragScroll` (mouse drag scrolling) and keyboard/gamepad focus have no touch counterpart.

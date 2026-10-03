@@ -1,5 +1,5 @@
 //
-//  Page.swift
+//  HomePage.swift
 //  Hayase
 //
 //  Mirrors: interface routes/app/home/+page.svelte

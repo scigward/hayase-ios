@@ -1,5 +1,5 @@
 //
-//  Page+DataSource.swift
+//  HomePage+DataSource.swift
 //  Hayase
 //
 //  Mirrors: the `{#each $sectionQueries}` of interface routes/app/home/+page.svelte, and the

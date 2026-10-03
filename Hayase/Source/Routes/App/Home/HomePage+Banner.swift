@@ -1,5 +1,5 @@
 //
-//  Page+Banner.swift
+//  HomePage+Banner.swift
 //  Hayase
 //
 //  Mirrors: `handleScroll` of interface routes/app/home/+page.svelte
