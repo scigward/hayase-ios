@@ -28,7 +28,7 @@ enum WebTorrentBridgeError: LocalizedError {
 }
 
 final class WebTorrentBridgeClient {
-    static let expectedVersion = "hayase-webtorrent-bridge-v10"
+    static let expectedVersion = "hayase-webtorrent-bridge-v11"
 
     private struct BridgeErrorPayload: Decodable {
         let message: String
@@ -157,6 +157,11 @@ final class WebTorrentBridgeClient {
 
     func cachedTorrents(completion: @escaping (Result<[String], Error>) -> Void) {
         call(method: "cachedTorrents", params: [:], completion: completion)
+    }
+
+    /// interface's `native.checkIncomingConnections(port)`: whether the port can be reached from outside.
+    func checkIncomingConnections(port: Int, completion: @escaping (Result<Bool, Error>) -> Void) {
+        call(method: "checkIncomingConnections", params: ["port": port], completion: completion)
     }
 
 

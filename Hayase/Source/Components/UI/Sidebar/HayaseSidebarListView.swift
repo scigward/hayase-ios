@@ -283,18 +283,6 @@ private final class HayaseSidebarLogoButton: UIControl {
     }
 
     private static func logoPath() -> CGPath {
-        let path = UIBezierPath()
-        path.move(to: CGPoint(x: 0.00000117, y: 61.5156237))
-        path.addLine(to: CGPoint(x: 0.00000117, y: 4.6302097))
-        path.addLine(to: CGPoint(x: 66.145832, y: 41.6718737))
-        path.addLine(to: CGPoint(x: 66.145832, y: 61.5156237))
-        path.addLine(to: CGPoint(x: 18.520837, y: 34.7927137))
-        path.addLine(to: CGPoint(x: 18.520837, y: 51.1968737))
-        path.close()
-        path.move(to: CGPoint(x: 66.145832, y: 31.0885537))
-        path.addLine(to: CGPoint(x: 42.597916, y: 17.8593797))
-        path.addLine(to: CGPoint(x: 66.145832, y: 4.6302097))
-        path.close()
-        return path.cgPath
+        HayaseLogo.path()
     }
 }

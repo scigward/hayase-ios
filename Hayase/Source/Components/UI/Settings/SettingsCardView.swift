@@ -44,15 +44,22 @@ final class SettingsCardView: UIView, SettingsResponsiveView {
     private let textStack: UIStackView
     private var horizontal: Bool?
     private var textWidth: NSLayoutConstraint?
+    private var holderHeight: NSLayoutConstraint?
+    /// The control the label is `for`: a tap on the text acts on it, as a click on a `<label for>` does.
+    weak var labelTarget: UIView?
 
-    init(title: String, description: String, control: UIView) {
-        let titleLabel = SettingsTypography.label(title, size: 14, lineHeight: 20, weight: .bold)
+    /// `transparent` is `class='bg-transparent'` and `topAlignedControl` is `self-baseline` on the control, which
+    /// when it is the only item to be aligned to a baseline sits at the top of the row instead of its middle.
+    init(title: String, description: String, control: UIView, transparent: Bool = false,
+         topAlignedControl: Bool = false) {
+        // The label's `leading-[unset]` leaves the line to the page's `line-height: 1.5` (21pt of 14pt)
+        let titleLabel = SettingsTypography.label(title, size: 14, lineHeight: 21, weight: .bold)
         let descriptionLabel = SettingsTypography.label(description, size: 12, lineHeight: 16,
                                                          weight: .medium, color: UIColor.HayaseTheme.mutedForeground)
         descriptionLabel.isHidden = description.isEmpty
         textStack = UIStackView(arrangedSubviews: [titleLabel, descriptionLabel])
         super.init(frame: .zero)
-        backgroundColor = UIColor.HayaseTheme.muted
+        backgroundColor = transparent ? .clear : UIColor.HayaseTheme.muted
         layer.cornerRadius = 6
         textStack.axis = .vertical
         textStack.spacing = 0
@@ -65,8 +72,25 @@ final class SettingsCardView: UIView, SettingsResponsiveView {
         stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(textStack)
-        stack.addArrangedSubview(control)
+        if topAlignedControl {
+            let holder = UIView()
+            control.translatesAutoresizingMaskIntoConstraints = false
+            holder.addSubview(control)
+            let matchesText = holder.heightAnchor.constraint(equalTo: textStack.heightAnchor)
+            matchesText.priority = .defaultHigh
+            holderHeight = matchesText
+            NSLayoutConstraint.activate([
+                control.topAnchor.constraint(equalTo: holder.topAnchor),
+                control.leadingAnchor.constraint(equalTo: holder.leadingAnchor),
+                control.trailingAnchor.constraint(equalTo: holder.trailingAnchor),
+                control.bottomAnchor.constraint(lessThanOrEqualTo: holder.bottomAnchor),
+            ])
+            stack.addArrangedSubview(holder)
+        } else {
+            stack.addArrangedSubview(control)
+        }
         addSubview(stack)
+        textStack.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(labelTapped)))
         textWidth = textStack.widthAnchor.constraint(equalTo: stack.widthAnchor)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 16),
@@ -89,9 +113,19 @@ final class SettingsCardView: UIView, SettingsResponsiveView {
             stack.axis = next ? .horizontal : .vertical
             stack.alignment = next ? .center : .leading
             textWidth?.isActive = !next
+            holderHeight?.isActive = next
         }
         stack.arrangedSubviews.compactMap { $0 as? SettingsResponsiveView }
             .forEach { $0.updateLayout(viewportWidth: viewportWidth) }
+    }
+
+    /// A click on the label goes to its control: a switch is toggled, an input is focused.
+    @objc private func labelTapped() {
+        if let toggle = labelTarget as? HayaseSwitch {
+            toggle.sendActions(for: .touchUpInside)
+        } else if let input = labelTarget as? SettingsInputControl {
+            input.input.becomeFirstResponder()
+        }
     }
 }
 
@@ -125,9 +159,15 @@ final class SettingsInputControl: UIView {
         preferredWidth.isActive = true
         setContentHuggingPriority(.required, for: .horizontal)
         if !suffix.isEmpty {
+            // `absolute right-3 … text-sm leading-5`: the text ends 12pt from the edge of the field
+            let reserved: CGFloat = suffix == "Mb/s" ? 48 : 40
             let label = SettingsTypography.label(suffix, size: 14, lineHeight: 20)
-            label.frame = CGRect(x: 0, y: 0, width: suffix == "Mb/s" ? 48 : 40, height: 36)
-            input.rightView = label
+            label.numberOfLines = 1
+            label.textAlignment = .right
+            label.frame = CGRect(x: 0, y: 0, width: reserved - 12, height: 36)
+            let holder = UIView(frame: CGRect(x: 0, y: 0, width: reserved, height: 36))
+            holder.addSubview(label)
+            input.rightView = holder
             input.rightViewMode = .always
         }
         input.addTarget(self, action: #selector(changed), for: .editingChanged)

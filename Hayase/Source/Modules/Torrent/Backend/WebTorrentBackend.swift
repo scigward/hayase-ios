@@ -236,6 +236,14 @@ final class WebTorrentBackend {
         }
     }
 
+    func checkIncomingConnections(port: Int, completion: @escaping (Result<Bool, Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.checkIncomingConnections(port: port, completion: completion)
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
     func status(completion: @escaping (Result<WebTorrentBridgeStatus, Error>) -> Void) {
         ensureStarted { [weak self] result in
             guard let self else { return }

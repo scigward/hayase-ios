@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createRequire } from 'node:module'
 
-const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v10'
+const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v11'
 const MAX_EVENTS = 200
 const TORRENT_FETCH_TIMEOUT_MS = 30_000
 const METADATA_TIMEOUT_MS = 90_000
@@ -737,6 +737,12 @@ async function handleRPC (payload) {
       return {}
     case 'cachedTorrents':
       return await activeClient.cached()
+    // interface's native.checkIncomingConnections, which the network step of the setup asks
+    case 'checkIncomingConnections':
+      if (typeof activeClient.checkIncomingConnections !== 'function') {
+        throw new Error('This torrent-client cannot check incoming connections')
+      }
+      return Boolean(await activeClient.checkIncomingConnections(Number(params.port ?? 0)))
     case 'listDisplays':
       return listCurrentDisplays(activeClient)
     case 'playDisplay': {

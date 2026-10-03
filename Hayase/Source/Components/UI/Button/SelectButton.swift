@@ -67,6 +67,13 @@ class SelectButton: UIButton {
         didSet { applyColors() }
     }
     var iconAnimation: IconAnimation?
+    /// `disabled:opacity-50`, which every variant of the interface's Button has. Off unless asked
+    /// for, since other screens dim their own disabled buttons.
+    var dimsWhenDisabled = false {
+        didSet { updateDisabledAlpha() }
+    }
+    /// A disabled button that also has `!pointer-events-auto`, whose `select:` colours still follow the pointer.
+    var selectsWhenDisabled = false
     /// chevronleft/chevronright.svelte: the icon slides sideways by this much while selected,
     /// `transition: transform 0.2s ease-in`.
     var selectedIconShift: CGFloat = 0
@@ -74,6 +81,15 @@ class SelectButton: UIButton {
     private var isPointerOver = false
     private var appliedSelected = false
     private var isSwappingIcon = false
+
+    override var isEnabled: Bool {
+        didSet { updateDisabledAlpha() }
+    }
+
+    private func updateDisabledAlpha() {
+        guard dimsWhenDisabled else { return }
+        alpha = isEnabled ? 1 : 0.5
+    }
     private var layeredIcon: LayeredIconView?
 
     /// Uses an icon whose parts animate separately (clapperboard, pencil, trash) instead of an image.
@@ -209,7 +225,7 @@ class SelectButton: UIButton {
 
     private func updateSelectState() {
         // disabled:pointer-events-none
-        let selected = isEnabled && (isHighlighted || isPointerOver)
+        let selected = (isEnabled || selectsWhenDisabled) && (isHighlighted || isPointerOver)
         guard selected != appliedSelected else { return }
         appliedSelected = selected
         UIView.transition(with: self, duration: 0.15,

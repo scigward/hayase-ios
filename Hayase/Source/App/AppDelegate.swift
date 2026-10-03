@@ -48,13 +48,37 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // from the storyboard before the mini-player window is created.
         DispatchQueue.main.async {
             HayaseInterfaceScale.apply()
-            MiniPlayerManager.shared.restoreSessionIfNeeded()
+            // Nothing is playing before the setup has been done
+            if SetupFlow.isFinished { MiniPlayerManager.shared.restoreSessionIfNeeded() }
         }
 
 		return true
 	}
 
+    /// `routes/+page.ts`: the app is the setup until `setup-finished` has reached the version.
+    private func installSetup() {
+        window?.rootViewController = SetupViewController()
+        window?.makeKeyAndVisible()
+    }
+
+    /// Next on the last step of the setup, which is `goto('/#/app/home', { replaceState: true })`: the
+    /// app takes the place of the setup, with the crossfade of a view transition.
+    func finishSetup() {
+        guard let window,
+              let tabs = UIStoryboard(name: "Main", bundle: nil).instantiateInitialViewController() as? UITabBarController else { return }
+        SetupFlow.markFinished()
+        setupTransition.perform(in: window) {
+            window.rootViewController = HayaseSidebarController(tabBarController: tabs)
+            window.makeKeyAndVisible()
+            HayaseInterfaceScale.apply()
+        }
+    }
+
     private func installSidebarShellIfNeeded() {
+        guard SetupFlow.isFinished else {
+            installSetup()
+            return
+        }
         guard let tabBarController = window?.rootViewController as? UITabBarController else { return }
         // Preserve the storyboard tab controller and its relationship-owned
         // navigation stacks. Rebuilding this graph caused destination roots
@@ -66,6 +90,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     /// Native equivalent of the interface restart after clearing its stores.
     func rebuildInterfaceAfterSettingsReset() {
+        // The reset clears `setup-finished` with the rest, so the interface starts over with the setup.
+        guard SetupFlow.isFinished else {
+            installSetup()
+            HayaseInterfaceScale.apply()
+            return
+        }
         guard let tabs = UIStoryboard(name: "Main", bundle: nil).instantiateInitialViewController() as? UITabBarController else { return }
         window?.rootViewController = HayaseSidebarController(tabBarController: tabs)
         window?.makeKeyAndVisible()
@@ -98,11 +128,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // shell's root view is ready to host the mini-player.
         guard !hasEnteredForeground else { return }
         hasEnteredForeground = true
-        MiniPlayerManager.shared.restoreSessionIfNeeded()
+        if SetupFlow.isFinished { MiniPlayerManager.shared.restoreSessionIfNeeded() }
     }
 
 	// MARK: Properties
 	var window: UIWindow?
+    private let setupTransition = HayaseRouteTransition()
 }
 
 

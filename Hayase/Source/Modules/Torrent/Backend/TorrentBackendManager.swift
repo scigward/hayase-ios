@@ -32,6 +32,11 @@ final class TorrentBackendManager {
         webTorrentBackend.cachedTorrents(completion: completion)
     }
 
+    /// interface's `native.checkIncomingConnections(port)`
+    func webTorrentCheckIncomingConnections(port: Int, completion: @escaping (Result<Bool, Error>) -> Void) {
+        webTorrentBackend.checkIncomingConnections(port: port, completion: completion)
+    }
+
     func webTorrentStatus(completion: @escaping (Result<WebTorrentBridgeStatus, Error>) -> Void) {
         webTorrentBackend.status(completion: completion)
     }
