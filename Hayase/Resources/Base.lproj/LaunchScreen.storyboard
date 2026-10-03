@@ -14,13 +14,12 @@
                     <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
                         <rect key="frame" x="0.0" y="0.0" width="390" height="844"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                        <color key="backgroundColor" white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                        <color key="backgroundColor" red="0.89803921568627454" green="0.12549019607843137" blue="0.29803921568627451" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <subviews>
                             <imageView opaque="NO" clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="HayaseLaunchLogo" translatesAutoresizingMaskIntoConstraints="NO" id="sXx-Hs-VLL">
-                                <rect key="frame" x="155" y="382" width="80" height="80"/>
+                                <rect key="frame" x="156" y="383" width="78" height="78"/>
                                 <constraints>
-                                    <constraint firstAttribute="width" constant="80" id="logo-width"/>
-                                    <constraint firstAttribute="height" constant="80" id="logo-height"/>
+                                    <constraint firstAttribute="width" secondItem="sXx-Hs-VLL" secondAttribute="height" multiplier="1:1" id="logo-aspect"/>
                                 </constraints>
                             </imageView>
                         </subviews>
@@ -28,6 +27,7 @@
                         <constraints>
                             <constraint firstItem="sXx-Hs-VLL" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="cnx-001"/>
                             <constraint firstItem="sXx-Hs-VLL" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="cny-001"/>
+                            <constraint firstItem="sXx-Hs-VLL" firstAttribute="width" secondItem="Ze5-6b-2t3" secondAttribute="width" multiplier="0.2" id="logo-width"/>
                         </constraints>
                     </view>
                 </viewController>
