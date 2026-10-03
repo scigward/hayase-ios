@@ -66,6 +66,12 @@ workflows:
           chmod +x ./Component/LibTorrent-Swift/make.sh
           OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" ./Component/LibTorrent-Swift/make.sh
 
+      - name: Take the latest Xyflow-Swift
+        script: |
+          set -euo pipefail
+
+          bash ./scripts/xyflow_pin.sh drop "$HOME/.hayase-spm"
+
       - name: Resolve Swift packages
         script: |
           set -euo pipefail
@@ -92,6 +98,12 @@ workflows:
             echo "Failed to resolve Swift packages"
             exit 1
           fi
+
+      - name: Show the Xyflow-Swift revision
+        script: |
+          set -euo pipefail
+
+          bash ./scripts/xyflow_pin.sh show "$HOME/.hayase-spm"
 
       - name: Build Hayase
         script: |
