@@ -27,7 +27,7 @@
                         <constraints>
                             <constraint firstItem="sXx-Hs-VLL" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="cnx-001"/>
                             <constraint firstItem="sXx-Hs-VLL" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="cny-001"/>
-                            <constraint firstItem="sXx-Hs-VLL" firstAttribute="width" secondItem="Ze5-6b-2t3" secondAttribute="width" multiplier="0.2" id="logo-width"/>
+                            <constraint firstItem="sXx-Hs-VLL" firstAttribute="width" secondItem="Ze5-6b-2t3" secondAttribute="width" multiplier="0.124219" id="logo-width"/>
                         </constraints>
                     </view>
                 </viewController>
