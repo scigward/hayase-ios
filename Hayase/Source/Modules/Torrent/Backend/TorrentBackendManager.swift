@@ -6,40 +6,16 @@
 //
 
 import Foundation
-import LibTorrent
 
 final class TorrentBackendManager {
     static let shared = TorrentBackendManager()
 
-    private let nativeBackend = NativeTorrentBackend.shared
     private let webTorrentBackend = WebTorrentBackend.shared
 
     private init() {}
 
-    var currentKind: TorrentBackendKind {
-        TorrentBackendKind.current()
-    }
-
     func applyCurrentSettings() {
-        switch currentKind {
-        case .native:
-            nativeBackend.applySettings()
-        case .webtorrent:
-            webTorrentBackend.applySettings()
-        }
-    }
-
-    func backendSelectionDidChange() {
-        applyCurrentSettings()
-        // Playback on the backend that was replaced is over, and so is its hold on a torrent.
-        if currentKind != .webtorrent {
-            webTorrentBackend.stopSession()
-        }
-    }
-
-    func updateNativeTorrentEntityInController(_ torrentEntity: Torrents,
-                                               completion: @escaping (Result<TorrentHandle, Error>) -> Void) {
-        nativeBackend.updateTorrentEntityInController(torrentEntity, completion: completion)
+        webTorrentBackend.applySettings()
     }
 
     func playWebTorrent(torrentEntity: Torrents,

@@ -1,6 +1,6 @@
 # WebTorrent parity audit
 
-Date: 2026-10-01. Scope: Swift's **WebTorrent** path, not the legacy LibTorrent backend.
+Date: 2026-10-01. Scope: Swift's **WebTorrent** path.
 
 This is an investigation and prioritized work list. No application behavior was changed by this audit. Findings distinguish source-confirmed differences, platform adaptations, shared upstream limitations, and behavior that still needs an iOS reproduction. This is not a claim that every network, filesystem, or player scenario has been runtime-tested.
 

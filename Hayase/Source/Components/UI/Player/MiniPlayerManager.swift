@@ -11,7 +11,6 @@
 /// presentations. This mirrors the web wrapper's z-[49] below dialog portals'
 /// z-50, so their single striped backdrop covers the mini-player too.
 import UIKit
-import LibTorrent
 import CoreData
 
 /// Reports finger down / up, which `mobile:active:paused-show` needs and gesture
@@ -70,13 +69,6 @@ final class MiniPlayerManager {
     /// { --padding-right: calc(100% - 3rem) }` leaves 3rem of the box, which is 2rem of
     /// video once the `px-4` padding is taken off).
     private let peekWidth: CGFloat = 32
-    /// Maximum number of retry attempts when restoring the mini-player session
-    /// and the torrent metadata hasn't been parsed yet by libtorrent.
-    /// Set high enough to cover re-added magnets that need DHT peer discovery
-    /// (web interface also waits for native.playTorrent() to resolve).
-    private let maxRestoreRetries = 30
-    /// Delay between restore retries (seconds).
-    private let restoreRetryDelay: TimeInterval = 1.0
     /// Keep the WebTorrent restore VideoService alive until metadata has been
     /// fetched and a player owns it. Without this strong reference the service
     /// is deallocated before its async playTorrent callback can post results.
@@ -192,29 +184,7 @@ final class MiniPlayerManager {
 
     // MARK: - Init
 
-    private init() {
-        // Observe torrent-will-be-removed notifications so we can tear down any
-        // active mini-player whose torrent is about to be freed. Without this,
-        // TorrentStreamer.stop() / LocalStreamServer / statsTimer would access
-        // the deallocated TorrentHandle and crash (use-after-free / segfault).
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleTorrentWillBeRemoved(_:)),
-            name: NSNotification.Name(TorrentService.TorrentWillBeRemovedNotification),
-            object: nil)
-    }
-
-    /// Called when a torrent is about to be removed from the session.
-    /// If the mini-player is streaming that torrent, close it immediately
-    /// so that `tearDownPlayer()` runs BEFORE the handle is freed.
-    @objc private func handleTorrentWillBeRemoved(_ notification: Notification) {
-        guard let removedHash = notification.userInfo?["torrentHash"] as? String,
-              let player = activePlayer,
-              let playerHash = player.torrentHandle?.infoHashes.best.hex,
-              playerHash == removedHash else { return }
-        // The mini-player's torrent is being deleted — close immediately.
-        close()
-    }
+    private init() {}
 
     // MARK: - Public API
 
@@ -294,8 +264,7 @@ final class MiniPlayerManager {
         }
 
         // Persist session state so the mini-player can be restored on relaunch
-        // (Hayase: server.active persists via the store, libtorrent fastResume
-        // restores the torrent on restart).
+        // (Hayase: server.active persists via the store).
         saveSessionState(player)
     }
 
@@ -813,22 +782,18 @@ final class MiniPlayerManager {
     }
 
     /// Saves the minimum data required to restore the mini-player on relaunch.
-    /// Mirrors Hayase's `server.active` store — the torrent session is
-    /// automatically restored by libtorrent's fastResume; we just need enough
-    /// metadata to reconnect to the right handle and file.
+    /// Mirrors Hayase's `server.active` store — we just need enough metadata
+    /// to load the torrent again and reconnect to the right file.
     private func saveSessionState(_ player: VideoPlayerViewController) {
         guard let path = player.videoEntity?.videoPath else { return }
 
         let torrentEntity = player.videoEntity?.torrents
-        let isWebTorrent = player.torrentHandle == nil && Self.isHTTPStreamPath(path)
-        let hash = player.torrentHandle?.infoHashes.best.hex
-            ?? torrentEntity?.torrentHashString
-            ?? ""
+        let hash = torrentEntity?.torrentHashString ?? ""
         guard !hash.isEmpty else { return }
 
         let source = torrentEntity?.torrentDownloadURL ?? ""
         let state: [String: Any] = [
-            "backend":       isWebTorrent ? "webtorrent" : "native",
+            "backend":       "webtorrent",
             "torrentHash":   hash,
             "magnetLink":    source,
             "torrentLink":   source,
@@ -858,9 +823,7 @@ final class MiniPlayerManager {
     /// that saved it. Called from VideoPlayerViewController.tearDownPlayer()
     /// so that a normal dismiss (without minimizing) also clears stale state.
     func clearSessionStateIfNeeded(for player: VideoPlayerViewController) {
-        let hash = player.torrentHandle?.infoHashes.best.hex
-            ?? player.videoEntity?.torrents?.torrentHashString
-            ?? ""
+        let hash = player.videoEntity?.torrents?.torrentHashString ?? ""
         guard !hash.isEmpty,
               let state = UserDefaults.standard.dictionary(forKey: Self.sessionStateKey),
               let savedHash = state["torrentHash"] as? String,
@@ -878,20 +841,13 @@ final class MiniPlayerManager {
 
     // MARK: - Session Restore (Hayase: server.active auto-mount on launch)
 
-    /// Number of retry attempts remaining when the torrent handle exists but
-    /// its metadata (file list) has not been restored yet by libtorrent.
-    private var restoreRetries = 0
-
     /// Attempts to restore the mini-player from a previously saved session.
-    /// Called from AppDelegate after TorrentService has finished initializing
-    /// (which restores libtorrent handles via fastResume).
     ///
     /// Flow mirrors Hayase's wrapper.svelte: if `server.active` has a value
     /// when the app mounts, the player component renders in mini-player mode
-    /// immediately. Here, we check UserDefaults for saved session state, look
-    /// up the torrent handle (already restored by libtorrent), create a
-    /// VideoPlayerViewController with the same properties, and show it as a
-    /// mini-player.
+    /// immediately. Here, we check UserDefaults for saved session state, load
+    /// the torrent again, create a VideoPlayerViewController with the same
+    /// properties, and show it as a mini-player.
     func restoreSessionIfNeeded() {
         // Don't restore if a mini-player is already active.
         guard !isActive else { return }
@@ -916,199 +872,20 @@ final class MiniPlayerManager {
         let episodeNumber = state["episodeNumber"] as? Int ?? 0
         let totalEpisodes = state["totalEpisodes"] as? Int ?? 0
 
+        // A session saved by the removed native backend has a file path, not a bridge URL.
         let backend = state["backend"] as? String
         let savedPath = state["videoPath"] as? String ?? ""
-        if backend == "webtorrent" || Self.isHTTPStreamPath(savedPath) {
-            restoreWebTorrentSession(state: state,
-                                     hash: hash,
-                                     fileIndex: fileIndex,
-                                     anilistID: anilistID,
-                                     episodeNumber: episodeNumber,
-                                     totalEpisodes: totalEpisodes)
-            return
-        }
-
-        // Look up the torrent handle — try the handles dict first (populated
-        // from libtorrent's fastResume during TorrentService.init()), then
-        // fall back to re-adding the torrent via magnet link.  This mirrors
-        // the Hayase web interface (server.play → native.playTorrent) which
-        // always re-adds the torrent on page reload instead of relying on
-        // libtorrent's auto-restore.
-        let magnetLink = state["magnetLink"] as? String
-        guard let handle = TorrentService.sharedTorrentService.readdTorrent(
-            hash: hash, magnetLink: magnetLink) else {
-            print("MiniPlayerManager: session restore — could not obtain torrent handle for \(hash), clearing state")
+        guard backend == "webtorrent" || Self.isHTTPStreamPath(savedPath) else {
             clearSessionState()
             return
         }
 
-        // Resolve the current video path from the torrent handle's snapshot.
-        // The snapshot's downloadPath always reflects the CURRENT Documents
-        // directory, so the path is correct even if the sandbox container UUID
-        // changed between launches. This avoids relying on stale paths stored
-        // in CoreData or UserDefaults.
-        let snapshotState: (TorrentHandle.Snapshot, String)? = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle in
-            activeHandle.updateSnapshot()
-            let snapshot = activeHandle.snapshot
-            let resolvedPath: String
-            if let entry = snapshot.files.first(where: { $0.index == Int(fileIndex) }),
-               let base = snapshot.downloadPath {
-                resolvedPath = base.appendingPathComponent(entry.path).path
-            } else {
-                resolvedPath = ""
-            }
-            return (snapshot, resolvedPath)
-        }
-        guard let (snapshot, resolvedSnapshotPath) = snapshotState else {
-            clearSessionState()
-            return
-        }
-
-        let resolvedPath: String
-        if !resolvedSnapshotPath.isEmpty {
-            resolvedPath = resolvedSnapshotPath
-        } else if snapshot.files.isEmpty {
-            // Metadata not yet available (fastResume hasn't finished parsing).
-            // Retry after a short delay so libtorrent has time to restore the
-            // file list from the resume data.
-            if restoreRetries < maxRestoreRetries {
-                restoreRetries += 1
-                print("MiniPlayerManager: session restore — metadata not ready, retry \(restoreRetries)/\(maxRestoreRetries)")
-                DispatchQueue.main.asyncAfter(deadline: .now() + restoreRetryDelay) { [weak self] in
-                    self?.restoreSessionIfNeeded()
-                }
-            } else {
-                print("MiniPlayerManager: session restore — metadata never became available, clearing state")
-                restoreRetries = 0
-                clearSessionState()
-            }
-            return
-        } else {
-            // Handle has files but the specific fileIndex wasn't found.
-            // Fall back to the saved path as a best-effort attempt.
-            resolvedPath = state["videoPath"] as? String ?? ""
-        }
-
-        guard !resolvedPath.isEmpty else {
-            print("MiniPlayerManager: session restore — could not resolve video path, clearing state")
-            clearSessionState()
-            return
-        }
-
-        restoreRetries = 0
-
-        // Look up the Videos entity from CoreData.
-        let context = CoreDataService.sharedCoreDataService.mainQueueContext
-        let fetchRequest = NSFetchRequest<Videos>(entityName: Videos.entityName)
-        fetchRequest.predicate = NSPredicate(
-            format: "torrents.torrentHashString == %@ AND videoIndex == %d",
-            hash, Int(fileIndex))
-        var entity: Videos?
-        do {
-            entity = try context.fetch(fetchRequest).first
-        } catch {
-            print("MiniPlayerManager: session restore — CoreData fetch failed: \(error)")
-        }
-
-        // If the Videos entity doesn't exist in CoreData (e.g. the rootContext
-        // was never flushed to disk before the app was killed), create a
-        // temporary entity so the player has something to work with.
-        if entity == nil {
-            // We need a Torrents parent. Try to find it or create one.
-            let tReq = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
-            tReq.predicate = NSPredicate(format: "torrentHashString == %@", hash)
-            var torrentEntity = (try? context.fetch(tReq))?.first
-            if torrentEntity == nil {
-                torrentEntity = NSEntityDescription.insertNewObject(
-                    forEntityName: Torrents.entityName, into: context) as? Torrents
-                torrentEntity?.torrentHashString = hash
-                torrentEntity?.torrentName = snapshot.name
-                torrentEntity?.torrentDownloadURL = state["magnetLink"] as? String
-            }
-
-            if let te = torrentEntity,
-               let v = NSEntityDescription.insertNewObject(
-                forEntityName: Videos.entityName, into: context) as? Videos {
-                v.videoPath  = resolvedPath
-                v.videoIndex = NSNumber(value: Int(fileIndex))
-                v.torrents   = te
-                if let fileEntry = snapshot.files.first(where: { $0.index == Int(fileIndex) }) {
-                    v.videoName = fileEntry.name
-                    v.videoSize = NSNumber(value: Double(fileEntry.size) / 1024.0 / 1024.0)
-                }
-                try? context.save()
-                CoreDataService.sharedCoreDataService.saveRootContext {}
-                entity = v
-                print("MiniPlayerManager: session restore — created Videos entity on-the-fly")
-            }
-        }
-
-        guard let entity else {
-            print("MiniPlayerManager: session restore — could not obtain Videos entity, clearing state")
-            clearSessionState()
-            return
-        }
-
-        // Always refresh the videoPath from the resolved path so it reflects
-        // the current sandbox directory (the path stored in CoreData may be
-        // stale if the container UUID changed between launches).
-        if entity.videoPath != resolvedPath {
-            entity.videoPath = resolvedPath
-            try? context.save()
-        }
-
-        // Fetch all video entities for this torrent so the player can show
-        // next/prev buttons and navigate between episodes.
-        let allReq = NSFetchRequest<Videos>(entityName: Videos.entityName)
-        allReq.predicate = NSPredicate(format: "torrents.torrentHashString == %@", hash)
-        allReq.sortDescriptors = [NSSortDescriptor(key: "videoIndex", ascending: true),
-                                  NSSortDescriptor(key: "videoName", ascending: true)]
-        let allVideos = (try? context.fetch(allReq)) ?? [entity]
-
-        // Create a VideoService so piece prioritization and file path
-        // resolution work correctly during playback. Without this, the
-        // torrent downloads all files instead of focusing on the target.
-        let torrentEntity = entity.torrents ?? {
-            let tReq = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
-            tReq.predicate = NSPredicate(format: "torrentHashString == %@", hash)
-            return (try? context.fetch(tReq))?.first
-        }()
-        var videoService: VideoService?
-        if let te = torrentEntity {
-            let vs = VideoService(torrentEntity: te)
-            vs.torrentHandle = handle
-            vs.selectFileForStreaming(fileIndex)
-            videoService = vs
-        }
-
-        // Create the player with restored properties.
-        let player = VideoPlayerViewController()
-        player.videoEntity      = entity
-        player.torrentHandle    = handle
-        player.videoService     = videoService
-        player.fileIndex        = fileIndex
-        player.anilistID        = anilistID
-        player.episodeNumber    = episodeNumber
-        player.totalEpisodes    = totalEpisodes
-        player.allVideos        = allVideos
-        player.currentVideoIndex = allVideos.firstIndex(of: entity) ?? 0
-
-        // Wire up episode change so restored players can navigate to
-        // out-of-batch episodes. Mirrors ExtensionSearchViewController's
-        // handleEpisodeChangeFromPlayer(): close mini-player → navigate to
-        // search screen → auto-select best torrent.
-        player.onEpisodeChange = { [weak self] episode, media in
-            self?.handleRestoredEpisodeChange(episode: episode, anilistID: media?.id ?? anilistID)
-        }
-
-        // Start the restored player paused so it does not auto-play on launch.
-        player.shouldStartPaused = true
-
-        // Force viewDidLoad → sets up surface, loads video, starts streaming.
-        _ = player.view
-
-        // Show as mini-player without presenting/dismissing.
-        showAsMiniPlayer(player)
+        restoreWebTorrentSession(state: state,
+                                 hash: hash,
+                                 fileIndex: fileIndex,
+                                 anilistID: anilistID,
+                                 episodeNumber: episodeNumber,
+                                 totalEpisodes: totalEpisodes)
     }
 
     private func restoreWebTorrentSession(state: [String: Any],
@@ -1147,7 +924,7 @@ final class MiniPlayerManager {
         try? context.save()
         CoreDataService.sharedCoreDataService.saveRootContext {}
 
-        let videoService = VideoService(torrentEntity: torrentEntity, episode: episodeNumber, backendKind: .webtorrent)
+        let videoService = VideoService(torrentEntity: torrentEntity, episode: episodeNumber)
         pendingWebTorrentRestoreService = videoService
 
         pendingWebTorrentRestoreObserver = NotificationCenter.default.addObserver(
@@ -1218,7 +995,6 @@ final class MiniPlayerManager {
 
         let player = VideoPlayerViewController()
         player.videoEntity = selectedVideo
-        player.torrentHandle = nil
         player.videoService = videoService
         player.fileIndex = selectedIndex
         player.anilistID = anilistID

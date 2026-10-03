@@ -1,6 +1,5 @@
 // Mirrors: ui/torrentclient/library/table.svelte and cells.
 import UIKit
-import LibTorrent
 
 // MARK: - LibraryColumnCell
 
@@ -197,35 +196,10 @@ final class LibraryColumnCell: UITableViewCell {
         configureText(seriesLabel, text: seriesTitle, lineHeight: 20)
         episodeLabel.text = entry.episode.map { String($0) } ?? "?"
         filesLabel.text = "\(entry.files)"
-        sizeLabel.text = entry.size == 0 ? "?" : TorrentDetailViewController.fastPrettyBytes(entry.size)
+        sizeLabel.text = entry.size == 0 ? "?" : TorrentFormat.fastPrettyBytes(entry.size)
         configureDate(entry.date)
         configureText(torrentNameLabel, text: entry.name, lineHeight: 16)
         configureStatus(progress: entry.progress)
-        configureSelection(isSelected)
-    }
-
-    func configure(handle: TorrentHandle, entity: Torrents?, isSelected: Bool, compact: Bool) {
-        applyLayout(compact: compact)
-        let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle -> TorrentHandle.Snapshot? in
-            activeHandle.snapshot
-        }
-
-        configureText(seriesLabel, text: entity?.animes.map { AniListUtil.title(for: $0) } ?? "?", lineHeight: 20)
-        let episodeCount = entity?.videos?.count ?? 0
-        episodeLabel.text = episodeCount > 0 ? "\(episodeCount)" : "?"
-        configureText(torrentNameLabel, text: entity?.torrentName ?? snap?.name ?? handle.infoHashes.best.hex, lineHeight: 16)
-        filesLabel.text = "\(snap?.files.count ?? 0)"
-        let size = snap?.total ?? 0
-        sizeLabel.text = size == 0 ? "?" : TorrentDetailViewController.fastPrettyBytes(size)
-        configureDate(nil)
-
-        let progress: Double
-        if let snap, snap.total > 0 {
-            progress = Double(snap.totalDone) / Double(snap.total)
-        } else {
-            progress = 0
-        }
-        configureStatus(progress: progress)
         configureSelection(isSelected)
     }
 

@@ -17,14 +17,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 1
 
-      - name: Update LibTorrent-Swift
-        run: git submodule update --init --remote --recursive Component/LibTorrent-Swift
-
       - name: Install build tools
-        run: brew install xcodegen boost openssl@3 node
+        run: brew install xcodegen node
 
       - name: Build WebTorrent backend bundle
         run: bash ./scripts/build_webtorrent_backend.sh
@@ -34,9 +30,6 @@ jobs:
 
       - name: Generate Xcode project
         run: ./scripts/generate_project.sh
-
-      - name: Prepare LibTorrent
-        run: OPENSSL_ROOT_DIR=$(brew --prefix openssl@3) ./Component/LibTorrent-Swift/make.sh
 
       - name: Resolve Swift packages
         run: |

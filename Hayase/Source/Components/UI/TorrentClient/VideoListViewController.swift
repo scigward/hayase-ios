@@ -94,8 +94,8 @@ final class VideoTableViewCell: UITableViewCell {
 
         // Show "downloaded / total" matching Hayase files/table.svelte size column.
         if totalBytes > 0 {
-            let dl = TorrentDetailViewController.fastPrettyBytes(downloadedBytes)
-            let tot = TorrentDetailViewController.fastPrettyBytes(totalBytes)
+            let dl = TorrentFormat.fastPrettyBytes(downloadedBytes)
+            let tot = TorrentFormat.fastPrettyBytes(totalBytes)
             sizeLabel.text = downloadedBytes >= totalBytes ? tot : "\(dl) / \(tot)"
         } else {
             let mb = video.videoSize?.floatValue ?? 0
@@ -148,7 +148,6 @@ class VideoListViewController: UIViewController {
     private var updateTimer: Timer?
     private var pendingAutoOpenIndexPath: IndexPath?
     private var didAutoResolve = false
-    private var batchFiles: [TorrentBatchResolver.ResolvedFile] = []
     private var resolvedVideoFiles: [TorrentBatchResolver.ResolvedItem<Videos>] = []
 
     deinit {
@@ -293,27 +292,7 @@ class VideoListViewController: UIViewController {
             guard let self = self, !self.stopUpdating else { return }
             self.tableView.reloadData()
             let count = self.videoResultsController?.sections?.first?.objects?.count ?? 0
-            // While the spinner is animating (loading phase), show live torrent state.
-            if self.loadingIndicator.isAnimating {
-                if let handle = self.videoService?.torrentHandle,
-                   let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle in
-                       activeHandle.snapshot
-                   }) {
-                    let peers = snap.numberOfPeers
-                    switch snap.state {
-                    case .downloadingMetadata:
-                        self.emptyLabel.text = peers > 0
-                            ? "Fetching metadata… (\(peers) peer\(peers == 1 ? "" : "s") connected)"
-                            : "Connecting to DHT and trackers…"
-                    case .downloading, .finished, .seeding:
-                        // Metadata arrived; CoreData will be populated by VideoService soon.
-                        self.emptyLabel.text = "Preparing file list…"
-                    default:
-                        self.emptyLabel.text = "Connecting to peers…"
-                    }
-                    self.emptyLabel.isHidden = false
-                }
-            } else if count == 0 {
+            if !self.loadingIndicator.isAnimating, count == 0 {
                 self.emptyLabel.text = "No video files found"
                 self.emptyLabel.isHidden = false
             }
@@ -343,27 +322,8 @@ class VideoListViewController: UIViewController {
         // streaming it immediately (skip the manual file-selection step).
         if !didAutoResolve, count > 1, let ep = targetEpisode, let vs = videoService {
             let resolver = TorrentBatchResolver()
-            if let handle = vs.torrentHandle,
-               let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle in
-                   activeHandle.snapshot
-               }),
-               snap.hasMetadata {
-                didAutoResolve = true
-                let files = snap.files
-                if let targetMedia = resolverTargetMedia() {
-                    resolver.resolve(files: files, targetEpisode: ep, targetMedia: targetMedia) { [weak self] result in
-                        guard let self, let match = result.target else { return }
-                        self.selectAndOpenResolvedMatch(match, videoService: vs, batchFiles: result.resolvedFiles)
-                    }
-                } else {
-                    let result = resolver.resolveByFilename(files: files, targetEpisode: ep)
-                    if let match = result.target {
-                        selectAndOpenResolvedMatch(match, videoService: vs, batchFiles: result.resolvedFiles)
-                    }
-                }
-            } else if TorrentBackendManager.shared.currentKind == .webtorrent,
-                      let targetMedia = resolverTargetMedia(),
-                      let videos = videoResultsController?.fetchedObjects {
+            if let targetMedia = resolverTargetMedia(),
+               let videos = videoResultsController?.fetchedObjects {
                 didAutoResolve = true
                 resolver.resolveItemsByAnime(from: videos,
                                              targetEpisode: ep,
@@ -388,39 +348,12 @@ class VideoListViewController: UIViewController {
         }
     }
 
-    private func selectAndOpenResolvedMatch(_ match: TorrentBatchResolver.ResolvedFile,
-                                            videoService vs: VideoService,
-                                            batchFiles: [TorrentBatchResolver.ResolvedFile]) {
-        guard let fileIdx = fileIndex(from: match.entry.index) else { return }
-        self.batchFiles = batchFiles
-        self.resolvedVideoFiles = []
-        vs.selectFileForStreaming(fileIdx)
-        tableView.reloadData()
-
-        // Find the matching IndexPath so we can auto-open the player.
-        if let allVids = videoResultsController?.fetchedObjects {
-            for (row, vid) in allVids.enumerated() {
-                if let vidIdx = vid.videoIndex?.intValue, vidIdx == Int(match.entry.index) {
-                    let ip = IndexPath(row: row, section: 0)
-                    if vs.downloadedBytesForFileIndex(fileIdx) > 0 {
-                        presentPlayer(at: ip)
-                    } else {
-                        pendingAutoOpenIndexPath = ip
-                    }
-                    break
-                }
-            }
-        }
-    }
-
     private func selectAndOpenVideo(_ video: Videos,
                                     videoService vs: VideoService,
                                     resolvedVideoFiles: [TorrentBatchResolver.ResolvedItem<Videos>] = []) {
         guard let index = video.videoIndex?.intValue,
               let fileIdx = fileIndex(from: index) else { return }
-        batchFiles = []
         self.resolvedVideoFiles = resolvedVideoFiles
-        vs.selectFileForStreaming(fileIdx)
         tableView.reloadData()
 
         if let allVids = videoResultsController?.fetchedObjects {
@@ -473,23 +406,19 @@ class VideoListViewController: UIViewController {
         MiniPlayerManager.shared.close()
         let player = VideoPlayerViewController()
         player.videoEntity       = video
-        player.torrentHandle     = vs.torrentHandle
         player.videoService      = vs
-        let activeFile = batchFiles.first { UInt(exactly: $0.entry.index) == Optional(fileIdx) }
         let activeVideoFile = resolvedVideoFiles.first { $0.item.objectID == video.objectID || $0.item.videoIndex == video.videoIndex }
-        let activeMedia = activeFile?.media ?? activeVideoFile?.media
+        let activeMedia = activeVideoFile?.media
 
         player.fileIndex         = fileIdx
         player.anilistID         = activeMedia?.id ?? Int(vs.torrentEntity.animes?.animeAnilistId ?? 0)
-        player.episodeNumber     = activeFile?.episodeReference.intValue
-            ?? activeVideoFile?.episodeReference.intValue
+        player.episodeNumber     = activeVideoFile?.episodeReference.intValue
             ?? targetEpisode
             ?? TorrentBatchResolver.extractEpisodeNumber(from: video.videoName ?? "")
             ?? Int(indexNum.intValue) + 1
         player.totalEpisodes     = activeMedia.map { TorrentBatchResolver.episodes(for: $0) } ?? vs.torrentEntity.animes?.animeTotalEps?.intValue ?? 0
         player.allVideos         = allVids
         player.currentVideoIndex = allVids.firstIndex(of: video) ?? 0
-        player.batchFiles        = batchFiles
         player.resolvedVideoFiles = resolvedVideoFiles
         player.onEpisodeChange   = { [weak self] episode, media in
             self?.handleEpisodeChangeFromPlayer(episode, media: media)
@@ -561,43 +490,14 @@ extension VideoListViewController: UITableViewDelegate {
         guard let index = fileIndex(from: indexNum.intValue),
               vs.totalBytesForFileIndex(index) > 0 else { return }  // metadata not yet ready
 
-        // Hayase: focus all download bandwidth on this one episode
-        vs.selectFileForStreaming(index)
         tableView.reloadData()
 
         if vs.downloadedBytesForFileIndex(index) > 0 {
             pendingAutoOpenIndexPath = nil
             presentPlayer(at: indexPath)
         } else {
-            // No bytes yet — queue for auto-open once libtorrent delivers the first pieces
+            // No bytes yet — queue for auto-open once the backend serves the file
             pendingAutoOpenIndexPath = indexPath
         }
-    }
-
-    func tableView(_ tableView: UITableView,
-                   trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath)
-        -> UISwipeActionsConfiguration? {
-        guard let video = video(at: indexPath),
-              let vs = videoService,
-              let indexNum = video.videoIndex,
-              let index = fileIndex(from: indexNum.intValue) else { return nil }
-        let isSkipped = vs.CheckIsDoNotDownloadForFileIndex(index) ?? false
-
-        let title = isSkipped ? "Prioritize" : "Skip"
-        let color: UIColor = isSkipped ? .systemGreen : .systemGray
-        let icon = isSkipped ? "download" : "ban"
-        let action = UIContextualAction(style: .normal, title: title) { [weak self] _, _, done in
-            if isSkipped {
-                vs.selectFileForStreaming(index)  // Hayase: prioritize this, deprioritize others
-                self?.tableView.reloadData()
-            } else {
-                vs.SetDoNotDownloadForFileIndex(index, flag: true)
-                self?.tableView.reloadData()
-            }
-            done(true)
-        }
-        action.backgroundColor = color
-        action.image = UIImage.hayaseIcon(icon)
-        return UISwipeActionsConfiguration(actions: [action])
     }
 }

@@ -73,15 +73,9 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: Hayase/Hayase-Bridging-Header.h
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
-        FRAMEWORK_SEARCH_PATHS:
-          - "$(inherited)"
-          - "$(PROJECT_DIR)/Component/**"
         HEADER_SEARCH_PATHS:
           - "$(SDKROOT)/usr/include/libxml2"
     dependencies:
-      - framework: LibTorrent.framework
-        implicit: true
-        embed: false
       - sdk: libz.tbd
       - package: OpenSSL
       - package: MPVKit
@@ -129,25 +123,6 @@ targets:
             "${SRC}/" "${DEST}/"
         outputFiles:
           - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/TorrentClientGeoIP/params.json
-      - name: Embed LibTorrent.framework
-        script: |
-          DEST="${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}"
-          SRC="${BUILT_PRODUCTS_DIR}/LibTorrent.framework"
-          if [ -d "${SRC}" ]; then
-            mkdir -p "${DEST}"
-            rsync -av --delete "${SRC}" "${DEST}/"
-            find "${DEST}/LibTorrent.framework" -maxdepth 1 -name "Headers" -type d -exec rm -rf {} + 2>/dev/null || true
-            find "${DEST}/LibTorrent.framework" -maxdepth 1 -name "PrivateHeaders" -type d -exec rm -rf {} + 2>/dev/null || true
-            find "${DEST}/LibTorrent.framework" -maxdepth 1 -name "Modules" -type d -exec rm -rf {} + 2>/dev/null || true
-            find "${DEST}/LibTorrent.framework" -name "*.tbd" -delete 2>/dev/null || true
-            if [ "${CODE_SIGNING_REQUIRED}" = "YES" ] && [ -n "${CODE_SIGN_IDENTITY}" ]; then
-              codesign --force --sign "${CODE_SIGN_IDENTITY}" "${DEST}/LibTorrent.framework"
-            fi
-          else
-            echo "warning: LibTorrent.framework not found at ${SRC}, skipping embed"
-          fi
-        outputFiles:
-          - $(BUILT_PRODUCTS_DIR)/$(FRAMEWORKS_FOLDER_PATH)/LibTorrent.framework
 
 schemes:
   Hayase:

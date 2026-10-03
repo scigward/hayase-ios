@@ -31,23 +31,12 @@ workflows:
       - git-clone@8: {}
 
       - script@1:
-          title: Checkout submodules
-          inputs:
-            - content: |-
-                set -euo pipefail
-
-                git submodule update --init --recursive
-                git submodule update --init --remote --recursive Component/LibTorrent-Swift
-
-      - script@1:
           title: Install dependencies
           inputs:
             - content: |-
                 set -euo pipefail
 
                 brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
-                brew list boost >/dev/null 2>&1 || brew install boost
-                brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
                 brew list node >/dev/null 2>&1 || brew install node
 
       - script@1:
@@ -79,16 +68,6 @@ workflows:
 
                 test -d Hayase.xcodeproj
                 test -d Hayase.xcworkspace
-                test -d Component/LibTorrent-Swift/LibTorrent.xcodeproj
-
-      - script@1:
-          title: Build LibTorrent
-          inputs:
-            - content: |-
-                set -euo pipefail
-
-                chmod +x ./Component/LibTorrent-Swift/make.sh
-                OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" ./Component/LibTorrent-Swift/make.sh
 
       - script@1:
           title: Generate app icons

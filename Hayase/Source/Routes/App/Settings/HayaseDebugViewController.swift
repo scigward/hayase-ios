@@ -77,11 +77,6 @@ final class HayaseDebugViewController: UIViewController {
             action: #selector(saveMediaCapabilities)
         ))
         stack.addArrangedSubview(makeCard(
-            title: "Native Torrent Backend",
-            description: "Switch between the native libtorrent and WebTorrent backends.",
-            action: #selector(selectTorrentBackend), buttonTitle: "Select"
-        ))
-        stack.addArrangedSubview(makeCard(
             title: "Streaming Logger",
             description: "Configure the native streaming, torrent, and player logger.",
             action: #selector(configureStreamingLogger), buttonTitle: "Configure"
@@ -191,7 +186,7 @@ final class HayaseDebugViewController: UIViewController {
            let values = try? caches.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]) {
             info["availableStorageBytes"] = values.volumeAvailableCapacityForImportantUsage ?? 0
         }
-        info["backend"] = TorrentBackendKind.current().rawValue
+        info["backend"] = "webtorrent"
         shareJSON(info, name: "hayase-torrent-capabilities")
     }
 
@@ -205,24 +200,6 @@ final class HayaseDebugViewController: UIViewController {
             "exportPresets": AVAssetExportSession.allExportPresets(),
         ]
         shareJSON(info, name: "hayase-media-capabilities")
-    }
-
-    @objc private func selectTorrentBackend() {
-        let options = TorrentBackendKind.settingsOptions
-        let picker = CommandPopoverViewController(
-            title: "Native Torrent Backend", placeholder: "Search...",
-            groups: [CommandGroup(options: options.map {
-                CommandOption(value: $0.key, label: $0.label)
-            })],
-            selectedValues: [TorrentBackendKind.current().rawValue],
-            allowsMultiple: false, sourceView: view
-        )
-        picker.onSelectionChanged = { values in
-            guard let value = values.first else { return }
-            Settings.write(value, forKey: TorrentBackendKind.userDefaultsKey)
-            TorrentBackendManager.shared.backendSelectionDidChange()
-        }
-        present(picker, animated: true)
     }
 
     @objc private func configureStreamingLogger() {

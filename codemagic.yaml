@@ -1,4 +1,4 @@
-# Mirrors .github/workflows/build-ipa.yml. Keep the nine build scripts identical.
+# Mirrors .github/workflows/build-ipa.yml. Keep the seven build scripts identical.
 workflows:
   hayase_unsigned_ipa:
     name: Build IPA
@@ -27,19 +27,11 @@ workflows:
           # Provider adapter only: subsequent build scripts are identical to GitHub's run blocks.
           printf 'GITHUB_WORKSPACE=%s\n' "$CM_BUILD_DIR" >> "$CM_ENV"
 
-      - name: Checkout submodules
-        script: |
-          set -euo pipefail
-
-          git submodule update --init --recursive
-
       - name: Install dependencies
         script: |
           set -euo pipefail
 
           command -v xcodegen >/dev/null || brew install xcodegen
-          brew list boost >/dev/null || brew install boost
-          brew list openssl@3 >/dev/null || brew install openssl@3
           command -v node >/dev/null || brew install node
 
       - name: Build WebTorrent backend
@@ -65,14 +57,6 @@ workflows:
 
           test -d Hayase.xcodeproj
           test -d Hayase.xcworkspace
-          test -d Component/LibTorrent-Swift/LibTorrent.xcodeproj
-
-      - name: Build LibTorrent
-        script: |
-          set -euo pipefail
-
-          chmod +x ./Component/LibTorrent-Swift/make.sh
-          OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" ./Component/LibTorrent-Swift/make.sh
 
       - name: Resolve Swift packages
         script: |

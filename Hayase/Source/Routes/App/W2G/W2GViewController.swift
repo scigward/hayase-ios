@@ -16,7 +16,6 @@
 
 import UIKit
 import CoreData
-import LibTorrent
 
 // MARK: - W2GViewController
 
@@ -64,7 +63,6 @@ final class W2GViewController: UIViewController {
     private var pendingWebTorrentService: VideoService?
     private var pendingWebTorrentObserver: NSObjectProtocol?
     private var pendingWebTorrentResolving = false
-    private var pendingNativePlayer: VideoPlayerViewController?
 
     // MARK: - Lobby UI Elements (shown when a lobby is active)
 
@@ -679,28 +677,10 @@ extension W2GViewController {
         // Set initial AniList state (mirrors web: `client.setInitialState(media, episode)`).
         AniListTracking.shared.setInitialState(anilistID: anilistID, episode: episode)
 
-        switch TorrentBackendManager.shared.currentKind {
-        case .webtorrent:
-            playW2GWebTorrent(entity: entity,
-                              anilistID: anilistID,
-                              episode: episode,
-                              animeItem: animeItem)
-        case .native:
-            let player = VideoPlayerViewController()
-            pendingNativePlayer = player
-            player.beginMetadataLoading(owner: self)
-            player.onCancelMetadataLoading = { [weak self, weak player] in
-                guard let self, self.pendingNativePlayer === player else { return }
-                self.pendingNativePlayer = nil
-            }
-            Router.shared.navigateToPlayer(player, hostTabIndex: hayaseTabIndex)
-            playW2GNative(hash: hash,
-                          entity: entity,
+        playW2GWebTorrent(entity: entity,
                           anilistID: anilistID,
                           episode: episode,
-                          animeItem: animeItem,
-                          player: player)
-        }
+                          animeItem: animeItem)
     }
 
     private func findOrCreateW2GTorrent(hash: String, anilistID: Int, animeItem: AnimeItem?) -> Torrents {
@@ -748,24 +728,6 @@ extension W2GViewController {
 
         try? context.save()
         return entity
-    }
-
-    private func playW2GNative(hash: String, entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?, player: VideoPlayerViewController) {
-        // Add the torrent by hash (magnet URI).
-        // Mirrors web: `native.playTorrent(torrent, media.id, episode)`.
-        guard let handle = TorrentService.sharedTorrentService.readdTorrent(hash: hash, magnetLink: nil) else {
-            pendingNativePlayer = nil
-            player.finishMetadataLoading(error: NSError(domain: "Hayase.W2G.Native", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Could not add the host's torrent."]))
-            return
-        }
-
-        w2gWaitForMetadataAndPlay(handle: handle,
-                                  entity: entity,
-                                  anilistID: anilistID,
-                                  episode: episode,
-                                  animeItem: animeItem,
-                                  player: player)
     }
 
     private func playW2GWebTorrent(entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?) {
@@ -932,12 +894,10 @@ extension W2GViewController {
 
         guard let video = sortedVideos[safe: selectedPosition] else { return }
         let index = UInt(max(0, video.videoIndex?.intValue ?? selectedPosition))
-        videoService.selectFileForStreaming(index)
         _ = videoService.UpdateFilePathForFileIndex(index)
 
         let selectedMedia = selectedResolvedFile?.media ?? animeItem
         player.videoEntity       = video
-        player.torrentHandle     = nil
         player.videoService      = videoService
         player.fileIndex         = index
         player.anilistID         = selectedMedia?.id ?? anilistID
@@ -946,7 +906,6 @@ extension W2GViewController {
             ?? (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
         player.allVideos         = sortedVideos
         player.currentVideoIndex = selectedPosition
-        player.batchFiles        = []
         player.resolvedVideoFiles = resolvedFiles
         player.onEpisodeChange   = { [weak self] episode, media in
             self?.handleW2GEpisodeChange(episode: episode,
@@ -956,182 +915,6 @@ extension W2GViewController {
                                          torrentEntity: entity)
         }
         player.finishMetadataLoading()
-    }
-
-    /// Polls the torrent handle until metadata is available, then presents the player.
-    private func w2gWaitForMetadataAndPlay(handle: TorrentHandle, entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?, player: VideoPlayerViewController, attempt: Int = 0) {
-        guard pendingNativePlayer === player else { return }
-        let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle -> TorrentHandle.Snapshot? in
-            activeHandle.updateSnapshot()
-            return activeHandle.snapshot
-        }
-        guard let snap else {
-            pendingNativePlayer = nil
-            player.finishMetadataLoading(error: NSError(domain: "Hayase.W2G.Native", code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Could not read the host's torrent state."]))
-            return
-        }
-
-        switch snap.state {
-        case .downloadingMetadata:
-            break
-        case .downloading, .finished, .seeding:
-            if !snap.files.isEmpty {
-                presentW2GPlayer(handle: handle, entity: entity, anilistID: anilistID,
-                                 episode: episode, animeItem: animeItem, player: player)
-                return
-            }
-        default:
-            break
-        }
-
-        // 60 attempts × 1s polling = 60s timeout for metadata fetch.
-        guard attempt < 60 else {
-            pendingNativePlayer = nil
-            player.finishMetadataLoading(error: NSError(domain: "Hayase.W2G.Native", code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "Could not fetch torrent metadata from peers."]))
-            return
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self, weak player] in
-            guard let player else { return }
-            self?.w2gWaitForMetadataAndPlay(handle: handle, entity: entity, anilistID: anilistID, episode: episode, animeItem: animeItem, player: player, attempt: attempt + 1)
-        }
-    }
-
-    /// Present the video player for a W2G torrent with metadata ready.
-    private func presentW2GPlayer(handle: TorrentHandle, entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?, player: VideoPlayerViewController) {
-        let context = CoreDataService.sharedCoreDataService.mainQueueContext
-
-        // Create a VideoService to manage streaming for this torrent.
-        let vs = VideoService(torrentEntity: entity)
-        vs.torrentHandle = handle
-
-        // Resolve the target file index for the episode.
-        let snapshot = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle -> TorrentHandle.Snapshot? in
-            activeHandle.snapshot
-        }
-        guard let snapshot else {
-            failPendingNativePlayback(player, message: "Could not read the host's torrent metadata.")
-            return
-        }
-        let files = snapshot.files
-        let resolver = TorrentBatchResolver()
-        let filenameResolution = resolver.resolveByFilename(files: files, targetEpisode: episode)
-        let videoFiles = files.filter { TorrentBatchResolver.isVideoFile($0.name) }
-        let playableFiles: [FileEntry]
-        if filenameResolution.resolvedFiles.isEmpty {
-            playableFiles = videoFiles
-        } else {
-            playableFiles = filenameResolution.resolvedFiles.map { $0.entry }
-        }
-        let playableFileIndices = Set(playableFiles.map { Int($0.index) })
-        func fileIndex<T: BinaryInteger>(from value: T?) -> UInt? {
-            guard let value else { return nil }
-            return UInt(exactly: value)
-        }
-
-        func fileIndex<T: BinaryInteger>(from value: T) -> UInt? {
-            fileIndex(from: Optional(value))
-        }
-        let initialFile = filenameResolution.target?.entry ?? playableFiles.first
-        guard let targetIndex = fileIndex(from: initialFile?.index) else {
-            failPendingNativePlayback(player, message: "The host's torrent has no playable video.")
-            return
-        }
-
-        // Ensure Video CoreData entities exist for the torrent's files.
-        // VideoService.UpdateLocalVideo populates these asynchronously, but for
-        // W2G we need them now. Create minimal entries if they don't exist yet.
-        let videoReq = NSFetchRequest<Videos>(entityName: Videos.entityName)
-        videoReq.predicate = NSPredicate(format: "torrents == %@", entity)
-        videoReq.sortDescriptors = [NSSortDescriptor(key: "videoIndex", ascending: true)]
-        var videos = ((try? context.fetch(videoReq)) ?? [])
-            .filter { playableFileIndices.contains($0.videoIndex?.intValue ?? -1) }
-        if videos.isEmpty {
-            // Populate from torrent file list.
-            for file in playableFiles {
-                let v = Videos(context: context)
-                v.videoName = file.name
-                v.videoSize = NSNumber(value: Double(file.size) / 1024.0 / 1024.0)
-                v.videoIndex = NSNumber(value: file.index)
-                // Build absolute path from downloadPath + relative file path.
-                if let base = snapshot.downloadPath {
-                    v.videoPath = base.appendingPathComponent(file.path).path
-                } else {
-                    v.videoPath = file.path
-                }
-                v.torrents = entity
-                videos.append(v)
-            }
-            try? context.save()
-        }
-
-        let presentResolved: (UInt, [TorrentBatchResolver.ResolvedFile]) -> Void = { [weak self, weak player] resolvedIndex, batchFiles in
-            guard let self, let player,
-                  self.pendingNativePlayer === player,
-                  self.client?.media?.torrent == entity.torrentHashString else { return }
-            var targetIndex = resolvedIndex
-
-            // Upstream W2G sends the playlist index. The web maps that index
-            // through mediaInfo.resolvedFiles, not the raw torrent file array.
-            if let clientIndex = W2GLobby.shared.client?.index, clientIndex >= 0 {
-                if let batchFile = batchFiles[safe: clientIndex],
-                   let index = fileIndex(from: batchFile.entry.index) {
-                    targetIndex = index
-                } else if let playableFile = playableFiles[safe: clientIndex],
-                          let index = fileIndex(from: playableFile.index) {
-                    targetIndex = index
-                }
-            }
-
-            let targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(targetIndex) } ?? videos.first
-            guard let video = targetVideo else {
-                self.failPendingNativePlayback(player, message: "The host's torrent has no playable video.")
-                return
-            }
-
-            vs.selectFileForStreaming(targetIndex)
-            _ = vs.UpdateFilePathForFileIndex(targetIndex)
-
-            let media = batchFiles.first { fileIndex(from: $0.entry.index) == Optional(targetIndex) }?.media
-
-            self.pendingNativePlayer = nil
-            player.videoEntity       = video
-            player.torrentHandle     = handle
-            player.videoService      = vs
-            player.fileIndex         = targetIndex
-            player.anilistID         = media?.id ?? anilistID
-            player.episodeNumber     = batchFiles.first { fileIndex(from: $0.entry.index) == Optional(targetIndex) }?.episodeReference.intValue ?? episode
-            player.totalEpisodes     = media.map { TorrentBatchResolver.episodes(for: $0) } ?? (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
-            player.allVideos         = videos
-            player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
-            player.batchFiles        = batchFiles
-            player.onEpisodeChange   = { [weak self] episode, media in
-                self?.handleW2GEpisodeChange(episode: episode,
-                                             media: media,
-                                             fallbackMediaID: media?.id ?? anilistID,
-                                             fallbackAnimeItem: animeItem,
-                                             torrentEntity: entity)
-            }
-            player.finishMetadataLoading()
-        }
-
-        if let targetMedia = animeItem ?? w2gResolverTargetMedia(entity: entity, anilistID: anilistID) {
-            resolver.resolve(files: files, targetEpisode: episode, targetMedia: targetMedia) { result in
-                let resolvedIndex = result.target.flatMap { fileIndex(from: $0.entry.index) } ?? targetIndex
-                presentResolved(resolvedIndex, result.resolvedFiles)
-            }
-        } else {
-            presentResolved(targetIndex, filenameResolution.resolvedFiles)
-        }
-    }
-
-    private func failPendingNativePlayback(_ player: VideoPlayerViewController, message: String) {
-        guard pendingNativePlayer === player else { return }
-        pendingNativePlayer = nil
-        player.finishMetadataLoading(error: NSError(domain: "Hayase.W2G.Native", code: 4,
-            userInfo: [NSLocalizedDescriptionKey: message]))
     }
 
     private func handleW2GEpisodeChange(episode: Int,

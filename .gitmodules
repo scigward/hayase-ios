@@ -1,4 +1,0 @@
-[submodule "Component/LibTorrent-Swift"]
-	path = Component/LibTorrent-Swift
-	url = https://github.com/scigward/LibTorrent-Swift.git
-	branch = main

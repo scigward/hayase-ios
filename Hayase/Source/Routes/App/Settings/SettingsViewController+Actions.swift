@@ -75,7 +75,6 @@ extension SettingsViewController {
     /// Keys whose changes must be forwarded to the active torrent backend.
     /// Mirrors Hayase's `torrentSettings` derived store that triggers `native.updateSettings`.
     static let torrentSettingKeys: Set<String> = [
-        TorrentBackendKind.userDefaultsKey,
         "pref_disableDHT", "pref_disablePeX",
         "pref_torrentPort", "pref_dhtPort",
         "pref_torrentSpeed", "pref_maxConns",
@@ -88,11 +87,7 @@ extension SettingsViewController {
     /// If `key` is a torrent-session setting, re-apply settings to the live session.
     func applyTorrentSettingsIfNeeded(forKey key: String) {
         if Self.torrentSettingKeys.contains(key) {
-            if key == TorrentBackendKind.userDefaultsKey {
-                TorrentBackendManager.shared.backendSelectionDidChange()
-            } else {
-                TorrentBackendManager.shared.applyCurrentSettings()
-            }
+            TorrentBackendManager.shared.applyCurrentSettings()
         }
     }
 

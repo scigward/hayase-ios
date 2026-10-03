@@ -4,7 +4,6 @@ import UIKit
 import AVKit
 import CoreMedia
 import UniformTypeIdentifiers
-import LibTorrent
 
 // MARK: - SegmentedSeekBar (interface seekbar.svelte)
 
@@ -465,16 +464,13 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         scheduleHide()
         MiniPlayerManager.shared.refreshLoadingState(for: self)
     }
-    var torrentHandle: TorrentHandle?
     var videoService: VideoService?
     var fileIndex: UInt = 0
     var anilistID: Int = 0
     var episodeNumber: Int = 0
     var allVideos: [Videos] = []
     var currentVideoIndex: Int = 0
-    var batchFiles: [TorrentBatchResolver.ResolvedFile] = []
     var resolvedVideoFiles: [TorrentBatchResolver.ResolvedItem<Videos>] = []
-    private var currentResolvedFile: TorrentBatchResolver.ResolvedFile?
     private var currentResolvedVideoFile: TorrentBatchResolver.ResolvedItem<Videos>?
 
     /// Callback fired when the user taps next/prev and the target episode is
@@ -501,11 +497,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         get { _pipController as? PiPController }
         set { _pipController = newValue }
     }
-
-    // MARK: - Streaming
-
-    private var streamer: TorrentStreamer?
-    private var streamServer: LocalStreamServer?
 
     // MARK: - Overlay
 
@@ -582,12 +573,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     /// play event. Used for session restore on app launch so the mini-player
     /// does not auto-play on launch.
     var shouldStartPaused = false
-    /// Tracks whether the pause was explicitly requested by the user (tap on
-    /// play/pause button) rather than caused by MPV (e.g. buffer underrun).
-    /// Note: we no longer fully pause the torrent — downloading continues at
-    /// reduced effective speed (no active deadline boosting) to match Hayase
-    /// behavior and avoid blocking LocalStreamServer.waitForLocalPieces().
-    private var userRequestedPause = false
     /// Matches Hayase player.svelte: prevents duplicate tracking calls.
     private var trackingCompleted = false
     private var isSeeking = false
@@ -691,11 +676,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     }
 
     private var currentW2GTorrentHash: String? {
-        if let hash = torrentHandle?.infoHashes.best.hex.trimmingCharacters(in: .whitespacesAndNewlines),
-           !hash.isEmpty {
-            return hash
-        }
-
         let hash = videoEntity?.torrents?.torrentHashString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return hash.isEmpty ? nil : hash
     }
@@ -888,15 +868,8 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         castDisplaysTimer?.invalidate()
         castElapsedTimer?.invalidate()
         ExternalDisplayManager.shared.unregister(self)
-        streamServer?.stop()
-        streamer?.stop()
         surface.stop()
         videoService?.releaseWebTorrentSession()
-        // Nil out references so no timer or callback can touch the handle
-        // after the torrent is removed from the session (use-after-free).
-        streamer = nil
-        streamServer = nil
-        torrentHandle = nil
         // W2G cleanup
         if let obs = w2gObserver { NotificationCenter.default.removeObserver(obs) }
         w2gPlayerDelegate = nil
@@ -965,7 +938,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
                 target = skippableChapter(at: currentTime) == nil && chapter.end - chapter.start > 100
                     ? currentTime + 85 : chapter.end + 0.5
             } else { target = currentTime < 10 ? 90 : duration - currentTime < 90 ? duration : currentTime + 85 }
-            streamer?.seekTo(fraction: duration > 0 ? min(1, target / duration) : 0)
             surface.mpv.seek(to: min(duration, target))
             showPlayerAnimation(icon: "fast-forward")
         case "list": toggleTechnicalStats()
@@ -1697,15 +1669,11 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         let newTime: Double
         if forward {
             newTime = min(duration, currentTime + seekAmount)
-            let fraction = duration > 0 ? newTime / duration : 0
-            streamer?.seekTo(fraction: fraction)
             surface.mpv.seek(by: seekAmount)
             lastSeekTime = Date()
             showPlayerAnimation(icon: "fast-forward")
         } else {
             newTime = max(0, currentTime - seekAmount)
-            let fraction = duration > 0 ? newTime / duration : 0
-            streamer?.seekTo(fraction: fraction)
             surface.mpv.seek(by: -seekAmount)
             lastSeekTime = Date()
             showPlayerAnimation(icon: "rewind")
@@ -1795,8 +1763,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         updateBuffering(true)
 
         // player.svelte: web seeds for the file being played.
-        if videoService?.backendKind == .webtorrent,
-           let hash = entity.torrents?.torrentHashString,
+        if let hash = entity.torrents?.torrentHashString,
            let name = entity.videoName,
            let index = entity.videoIndex?.intValue {
             WebTorrentWebSeeds.add(hash: hash, mediaID: currentMediaID, media: videoService?.media,
@@ -1804,18 +1771,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
                                    files: .single(WebSeedFile(name: name, index: index)))
         }
 
-        // Set up torrent streaming if the file is still downloading.
-        setupStreamer { [weak self] in
-            guard let self else { return }
-
-            // Load MPV after the local HTTP server is ready. The server blocks
-            // HTTP responses until required pieces are downloaded, so MPV
-            // naturally waits for head data without a separate pre-wait.
-            if let s = self.streamer, s.isActive {
-                StreamingLogger.shared.info("Streaming — waiting for head pieces…")
-            }
-            self.loadVideoURL()
-        }
+        loadVideoURL()
 
         // Set initial AniList state (PLANNING → CURRENT, COMPLETED → REPEATING) for ep 1
         AniListTracking.shared.setInitialState(anilistID: anilistID, episode: episodeNumber)
@@ -1834,13 +1790,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     /// a remote W2G index event.
     /// Mirrors web mediahandler.svelte: `$: $w2globby?.on('index', index => { current = fileToMedaInfo(mediaInfo.resolvedFiles[index]) })`
     func applyRemoteW2GIndex(_ newIndex: Int) {
-        if !batchFiles.isEmpty {
-            guard let file = batchFiles[safe: newIndex],
-                  !matchesFileIndex(file, fileIndex) else { return }
-            switchToBatchFile(file)
-            return
-        }
-
         if !resolvedVideoFiles.isEmpty {
             guard let file = resolvedVideoFiles[safe: newIndex],
                   !matchesVideo(file, fileIndex) else { return }
@@ -1862,43 +1811,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
 
         let url: URL
         let preset: PlayerPreset
-        if let server = streamServer {
-            // Streaming: serve the file via local HTTP so MPV handles
-            // buffering and seeking natively. The server blocks responses
-            // until the required pieces are downloaded.
-            url = server.url
-            // Enable MPV's stream cache for the HTTP stream. Without this,
-            // MPV reads synchronously and can't buffer ahead, causing stalls.
-            // These are set per-load so they don't affect local file playback.
-            //
-            // MKV duration probing: MPV's default is "no" (set in MPVWrapper
-            // — we no longer set it to "yes" globally). We explicitly confirm
-            // "no" here as a belt-and-suspenders guard. Without probing, MPV
-            // reads duration from the MKV Info element in the first 1–2 pieces
-            // instead of making a separate Range request to the tail. When
-            // probe=yes (the old global default) MPV's tail request blocked
-            // LocalStreamServer until tail pieces arrived; combined with tight
-            // head-piece deadlines this split bandwidth across 12+ simultaneous
-            // deadline pieces, causing 700 MB to be downloaded before playback
-            // started (vs WebTorrent desktop's ~100 MB). Seeking still works
-            // via force-seekable=yes; LocalStreamServer.waitForLocalPieces
-            // blocks reactively on the exact tail pieces needed per seek.
-            //
-            // NOTE: This uses a preset "set" command (not loadfile file-local
-            // options) because mpv 0.36+ changed the loadfile signature to
-            // `loadfile url flags index options` — the 4th arg is an integer
-            // index, not options. File-local options at position 4 get silently
-            // consumed as the index parameter and never take effect.
-            preset = PlayerPreset(commands: [
-                ["set", "demuxer-mkv-probe-video-duration", "no"],
-                ["set", "cache", "yes"],
-                ["set", "cache-secs", "180"],
-                ["set", "cache-pause-wait", "5"],
-                ["set", "demuxer-max-bytes", "250MiB"],
-                ["set", "demuxer-max-back-bytes", "50MiB"],
-                ["set", "network-timeout", "600"],
-            ])
-        } else if path.starts(with: "http"), let httpURL = URL(string: path) {
+        if path.starts(with: "http"), let httpURL = URL(string: path) {
             url = httpURL
             preset = PlayerPreset()
         } else {
@@ -1960,63 +1873,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         pendingRestoreTime = saved.currentTime
     }
 
-    // MARK: - Streaming setup
-
-    /// Creates a TorrentStreamer and LocalStreamServer for the active file.
-    /// The streamer manages piece deadlines for proactive prefetching and is
-    /// only created when the file is still downloading. The HTTP server is
-    /// always started so MPV reads from a consistent HTTP URL regardless of
-    /// download state — this avoids issues (e.g. next-episode navigation
-    /// stalling) that arise from switching between HTTP and file:// URLs.
-    private func setupStreamer(completion: @escaping () -> Void) {
-        // Stop any previous streamer / server
-        streamServer?.stop()
-        streamServer = nil
-        streamer?.stop()
-        streamer = nil
-
-        guard let handle = torrentHandle else {
-            completion()
-            return
-        }
-
-        // Create a TorrentStreamer only when the file is not yet fully downloaded.
-        // It manages piece deadlines for proactive prefetching; not needed once
-        // all pieces are on disk.
-        if !isFileFullyDownloaded() {
-            let s = TorrentStreamer(torrentHandle: handle, fileIndex: fileIndex)
-            s.start()
-            streamer = s
-            StreamingLogger.shared.info("Streamer started — pieces \(s.beginPiece)–\(s.endPiece) (\(s.totalFilePieces) total)")
-        }
-
-        // Always start a local HTTP server so MPV reads from HTTP regardless of
-        // download state. The server gates responses on piece availability while
-        // downloading; for fully-downloaded files all pieces return immediately.
-        let path = videoEntity?.videoPath ?? ""
-        guard !path.isEmpty else {
-            completion()
-            return
-        }
-
-        let server = LocalStreamServer(torrentHandle: handle, fileIndex: fileIndex, filePath: path)
-        streamServer = server
-        server.start { [weak self] result in
-            guard let self, self.streamServer === server else { return }
-
-            switch result {
-            case .success:
-                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: started for file \(self.fileIndex) at \(server.url)") }
-            case .failure(let error):
-                self.streamServer = nil
-                StreamingLogger.shared.error("Stream server failed: \(error.localizedDescription)")
-                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: failed to start — \(error)") }
-                // Fall back to direct file path (original behavior)
-            }
-            completion()
-        }
-    }
-
     // MARK: - Matroska language parsing
 
     /// Returns a `file://` URL for the current MKV on disk (if available)
@@ -2040,30 +1896,20 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     private func startStatsTimer() {
         statsTimer?.invalidate()
         startCastDisplaysTimer()
-        guard torrentHandle != nil || isWebTorrentPlayback else { return }
+        guard isWebTorrentPlayback else { return }
         statsHUD.isHidden = Settings.minimalPlayerUI
-        updateStats()
+        updateWebTorrentStats()
         let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
-            self?.updateStats()
+            self?.updateWebTorrentStats()
         }
         RunLoop.main.add(timer, forMode: .common)
         statsTimer = timer
     }
 
     private var isWebTorrentPlayback: Bool {
-        guard torrentHandle == nil,
-              videoEntity?.torrents != nil,
+        guard videoEntity?.torrents != nil,
               let path = videoEntity?.videoPath?.lowercased() else { return false }
         return path.hasPrefix("http://") || path.hasPrefix("https://")
-    }
-
-    private func updateStats() {
-        if let handle = torrentHandle {
-            updateNativeTorrentStats(handle: handle)
-            return
-        }
-
-        updateWebTorrentStats()
     }
 
     private func updateWebTorrentStats() {
@@ -2097,37 +1943,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         statsUpLabel.content = "\(fmtBits(uploadSpeed * 8))/s"
     }
 
-    private func updateNativeTorrentStats(handle: TorrentHandle) {
-        let state: (TorrentHandle.Snapshot, Bool)? = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle in
-            activeHandle.updateSnapshot()
-            let snap = activeHandle.snapshot
-            if snap.isSeed { return (snap, true) }
-            if let entry = snap.files.first(where: { $0.index == Int(self.fileIndex) }) {
-                return (snap, entry.size > 0 && entry.downloaded >= entry.size)
-            }
-            return (snap, false)
-        }
-        guard let (snap, isComplete) = state else { return }
 
-        if isComplete {
-            // Stop the streamer — piece management is no longer needed.
-            // Do NOT stop streamServer here: MPV is still reading from the
-            // HTTP URL. Stopping the server mid-playback causes read errors
-            // and playback failure. The server is stopped in viewWillDisappear
-            // and prev/next episode transitions.
-            if streamer != nil {
-                streamer?.stop()
-                streamer = nil
-            }
-        }
-        // Hayase downloadstats.svelte: Users, ChevronDown, ChevronUp.
-        let peers = snap.numberOfSeeds
-        let downBits = fmtBits(snap.downloadRate * 8)
-        let upBits = fmtBits(snap.uploadRate * 8)
-        statsPeersLabel.content = "\(peers)"
-        statsDownLabel.content = "\(downBits)/s"
-        statsUpLabel.content = "\(upBits)/s"
-    }
 
     /// Formats bits per second into a human-readable string (Hayase fastPrettyBits).
     private func fmtBits(_ bps: UInt64) -> String {
@@ -2227,8 +2043,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     /// position back to us, so this — like web — is a fiction used only to
     /// size the progress bar and to feed checkCompletion's threshold.
     private func castDurationSeconds() -> Double {
-        let media = currentBatchFile?.media ?? currentResolvedVideo?.media
-        return Double((media?.duration ?? 24) * 60)
+        Double((currentResolvedVideo?.media?.duration ?? 24) * 60)
     }
 
     private func startCasting(to display: WebTorrentDisplay) {
@@ -2245,7 +2060,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         nowCastingTimeLabel.isHidden = false
         nowCastingProgressContainer.isHidden = false
         nowCastingContainer.isHidden = false
-        userRequestedPause = true
         surface.mpv.pausePlayback()
         startCastElapsedTimer()
 
@@ -2309,7 +2123,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         castElapsedTimer = nil
         castStartTime = nil
         nowCastingContainer.isHidden = true
-        userRequestedPause = false
         surface.mpv.play()
         TorrentBackendManager.shared.webTorrentCloseDisplay(host: display.host) { _ in }
     }
@@ -2356,24 +2169,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         return "Episode \(episodeNumber)"
     }
 
-    /// Checks whether the target file is fully downloaded using byte-level
-    /// progress from libtorrent's file_progress(). This is immune to the
-    /// "wanted pieces" issue where snap.progress falsely reports 1.0 when
-    /// TorrentStreamer has set most pieces to priority 0.
-    private func isFileFullyDownloaded() -> Bool {
-        guard let handle = torrentHandle else { return true }
-        return TorrentService.sharedTorrentService.withActiveHandle(handle, default: true) { activeHandle in
-            activeHandle.updateSnapshot()
-            let snap = activeHandle.snapshot
-            // isSeed means the entire torrent is downloaded — always reliable.
-            if snap.isSeed { return true }
-            // Check byte-level progress for the specific file we're playing.
-            if let entry = snap.files.first(where: { $0.index == Int(self.fileIndex) }) {
-                return entry.size > 0 && entry.downloaded >= entry.size
-            }
-            return false
-        }
-    }
 
     // MARK: - Watch progress
 
@@ -2629,8 +2424,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         guard let current = currentSkippableChapter ?? skippableChapter(at: currentTime),
               duration > 0 else { return }
         let targetTime = min(duration, current.end + 0.5)
-        let fraction = max(0, min(1, targetTime / duration))
-        streamer?.seekTo(fraction: fraction)
         surface.mpv.seek(to: targetTime)
         lastSeekTime = Date()
         isSeeking = true
@@ -2657,11 +2450,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
 
     @objc private func playPauseTapped() {
         showPlayerAnimation(icon: isPaused ? "play" : "pause")
-        // Track that this pause/unpause was user-initiated so didChangePause
-        // knows to pause/resume the torrent. Without this flag, buffer stalls
-        // (paused-for-cache) that flip the pause property would incorrectly
-        // stop the torrent download, making stutters worse.
-        userRequestedPause = !isPaused
         surface.mpv.togglePause()
         if !controlsVisible { setControls(visible: true) } else { scheduleHide() }
     }
@@ -2676,13 +2464,11 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
 
     private func navigateEpisode(by delta: Int) {
         guard let currentEpisode = currentEpisodeForNavigation else { return }
-        let media = currentBatchFile?.media
-        let mediaID = media?.id ?? currentMediaID
 
-        resolveNavigationEpisode(from: currentEpisode, delta: delta, mediaID: mediaID) { [weak self] targetEpisode in
+        resolveNavigationEpisode(from: currentEpisode, delta: delta, mediaID: currentMediaID) { [weak self] targetEpisode in
             guard let self, let targetEpisode else { return }
             self.saveProgress()
-            self.playEpisode(targetEpisode, media: media)
+            self.playEpisode(targetEpisode, media: nil)
         }
     }
 
@@ -2718,23 +2504,12 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     /// resolved batch by AniList media and episode; otherwise start a new search.
     private func playEpisode(_ episode: Int, media: AnimeItem?) {
         let mediaID = media?.id ?? currentMediaID
-        if let file = batchFile(forEpisode: episode, mediaID: mediaID) {
-            switchToBatchFile(file)
-        } else if let file = resolvedVideoFile(forEpisode: episode, mediaID: mediaID) {
+        if let file = resolvedVideoFile(forEpisode: episode, mediaID: mediaID) {
             switchToResolvedVideoFile(file)
         } else if let match = videoMatchByFilename(forEpisode: episode) {
-            switchToVideo(match, episode: episode, media: media ?? currentBatchFile?.media ?? currentResolvedVideoFile?.media)
+            switchToVideo(match, episode: episode, media: media ?? currentResolvedVideoFile?.media)
         } else {
             requestEpisodeChange(episode, media: media)
-        }
-    }
-
-    private func batchFile(forEpisode targetEp: Int,
-                           mediaID: Int) -> TorrentBatchResolver.ResolvedFile? {
-        batchFiles.first { resolvedFile in
-            resolvedFile.episodeReference.matches(targetEp)
-                && resolvedFile.media?.id == mediaID
-                && videoMatch(for: resolvedFile) != nil
         }
     }
 
@@ -2747,13 +2522,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         }
     }
 
-    private var currentBatchFile: TorrentBatchResolver.ResolvedFile? {
-        if let currentResolvedFile, matchesFileIndex(currentResolvedFile, fileIndex) {
-            return currentResolvedFile
-        }
-        return batchFiles.first { matchesFileIndex($0, fileIndex) }
-    }
-
     private var currentResolvedVideo: TorrentBatchResolver.ResolvedItem<Videos>? {
         if let currentResolvedVideoFile, matchesVideo(currentResolvedVideoFile, fileIndex) {
             return currentResolvedVideoFile
@@ -2762,13 +2530,10 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     }
 
     private var currentMediaID: Int {
-        currentBatchFile?.media?.id ?? currentResolvedVideo?.media?.id ?? anilistID
+        currentResolvedVideo?.media?.id ?? anilistID
     }
 
     private var currentEpisodeForNavigation: Int? {
-        if let file = currentBatchFile {
-            return file.episodeReference.intValue
-        }
         if let file = currentResolvedVideo {
             return file.episodeReference.intValue
         }
@@ -2796,9 +2561,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         let limit = currentEpisodeLimit
         guard limit <= 0 || episode <= limit else { return false }
 
-        if batchFile(forEpisode: episode, mediaID: currentMediaID) != nil {
-            return true
-        }
         if resolvedVideoFile(forEpisode: episode, mediaID: currentMediaID) != nil {
             return true
         }
@@ -2829,9 +2591,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     }
 
     private var playlistIndex: Int {
-        if let index = batchFiles.firstIndex(where: { matchesFileIndex($0, fileIndex) }) {
-            return index
-        }
         if let index = resolvedVideoFiles.firstIndex(where: { matchesVideo($0, fileIndex) }) {
             return index
         }
@@ -2839,16 +2598,13 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     }
 
     private var currentEpisodeLimit: Int {
-        if let media = currentBatchFile?.media ?? currentResolvedVideo?.media {
+        if let media = currentResolvedVideo?.media {
             return TorrentBatchResolver.episodes(for: media)
         }
         return totalEpisodes
     }
 
     private var playlistVideos: [Videos] {
-        if !batchFiles.isEmpty {
-            return batchFiles.compactMap { videoMatch(for: $0)?.video }
-        }
         if !resolvedVideoFiles.isEmpty {
             return resolvedVideoFiles.compactMap { videoMatch(for: $0)?.video }
         }
@@ -2858,31 +2614,10 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     /// options.svelte Playlist item and castplayer.svelte's Playlist dialog
     /// both call `selectFile(file)` — same underlying switch either way.
     private func selectPlaylistVideo(_ video: Videos) {
-        if let fileIndex = video.videoIndex?.uintValue,
-           let file = batchFiles.first(where: { matchesFileIndex($0, fileIndex) }) {
-            switchToBatchFile(file)
-            return
-        }
-
         if let idx = allVideos.firstIndex(of: video), idx != currentVideoIndex {
             let targetEpisode = episodeNumber + (idx - currentVideoIndex)
             switchToVideo((video: video, index: idx), episode: targetEpisode)
         }
-    }
-
-    private func fileIndex(for file: TorrentBatchResolver.ResolvedFile) -> UInt? {
-        UInt(exactly: file.entry.index)
-    }
-
-    private func matchesFileIndex(_ file: TorrentBatchResolver.ResolvedFile, _ index: UInt) -> Bool {
-        fileIndex(for: file) == Optional(index)
-    }
-
-    private func videoMatch(for file: TorrentBatchResolver.ResolvedFile) -> (video: Videos, index: Int)? {
-        guard let index = fileIndex(for: file) else { return nil }
-        return allVideos.enumerated().first { _, video in
-            video.videoIndex?.uintValue == index
-        }.map { ($0.element, $0.offset) }
     }
 
     private func matchesVideo(_ file: TorrentBatchResolver.ResolvedItem<Videos>, _ index: UInt) -> Bool {
@@ -2896,24 +2631,12 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         }.map { ($0.element, $0.offset) }
     }
 
-    private func episodeNumber(for file: TorrentBatchResolver.ResolvedFile) -> Int {
-        file.episodeReference.intValue ?? episodeNumber
-    }
-
-    private func switchToBatchFile(_ file: TorrentBatchResolver.ResolvedFile) {
-        guard let match = videoMatch(for: file) else { return }
-        currentResolvedFile = file
-        currentResolvedVideoFile = nil
-        switchToVideo(match, episode: episodeNumber(for: file), media: file.media)
-    }
-
     private func episodeNumber(for file: TorrentBatchResolver.ResolvedItem<Videos>) -> Int {
         file.episodeReference.intValue ?? episodeNumber
     }
 
     private func switchToResolvedVideoFile(_ file: TorrentBatchResolver.ResolvedItem<Videos>) {
         guard let match = videoMatch(for: file) else { return }
-        currentResolvedFile = nil
         currentResolvedVideoFile = file
         switchToVideo(match, episode: episodeNumber(for: file), media: file.media)
     }
@@ -2921,13 +2644,8 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     /// Switches to a different video file within the same torrent batch.
     private func switchToVideo(_ match: (video: Videos, index: Int), episode: Int, media: AnimeItem? = nil) {
         if media == nil {
-            currentResolvedFile = nil
             currentResolvedVideoFile = nil
         }
-        streamServer?.stop()
-        streamServer = nil
-        streamer?.stop()
-        streamer = nil
         currentVideoIndex = match.index
         videoEntity = match.video
         episodeNumber = episode
@@ -2937,7 +2655,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         }
         if let idx = videoEntity?.videoIndex, idx.intValue >= 0 {
             fileIndex = UInt(idx.intValue)
-            videoService?.selectFileForStreaming(fileIndex)
             _ = videoService?.UpdateFilePathForFileIndex(fileIndex)
         }
         duration = 0; currentTime = 0
@@ -2948,7 +2665,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     /// Requests an episode change for an episode NOT in the current batch.
     /// The callback performs the web-equivalent `searchStore.set({ media, episode })`.
     private func requestEpisodeChange(_ episode: Int, media: AnimeItem?) {
-        onEpisodeChange?(episode, media ?? currentBatchFile?.media ?? currentResolvedVideo?.media)
+        onEpisodeChange?(episode, media ?? currentResolvedVideo?.media)
     }
 
     // MARK: - Title / episode navigation (Hayase episodesmodal.svelte)
@@ -3030,7 +2747,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         guard mediaID > 0 else { return }
 
         saveProgress()
-        if let media = currentBatchFile?.media ?? currentResolvedVideo?.media {
+        if let media = currentResolvedVideo?.media {
             Router.shared.cacheAnimeItem(media)
         }
         Router.shared.navigate(.anime(id: mediaID))
@@ -3060,7 +2777,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         let sheet = PlayerEpisodeListViewController()
         sheet.anilistID = mediaID
         sheet.currentEpisode = playingEpisode
-        sheet.media = currentBatchFile?.media ?? currentResolvedVideo?.media
+        sheet.media = currentResolvedVideo?.media
         sheet.totalEpisodesHint = currentEpisodeLimit
         // interface EpisodesList.svelte card click: `playEp(media, episode)`.
         sheet.onSelectEpisode = { [weak self] episode, media in
@@ -3126,10 +2843,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         pendingSeekDisplayTime = targetTime
         lastSeekTime = Date()
 
-        // Tell the streamer to prioritize pieces at the new position.
-        // The HTTP server will block MPV's byte-range requests until
-        // the required pieces are downloaded, so we can seek immediately.
-        streamer?.seekTo(fraction: seekFraction)
         surface.mpv.seek(to: targetTime)
         showPlayerAnimation(icon: targetTime > currentTime ? "fast-forward" : "rewind")
         if !wasPaused { surface.mpv.play() }
@@ -3462,13 +3175,6 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
             surface.mpv.seek(to: restoreTime)
         }
 
-        // Feed playback position to the streamer so it can set piece deadlines
-        // ahead of the current position. Pass duration so the streamer can check
-        // whether the buffer is already sufficient and skip unnecessary requests.
-        if duration > 0 {
-            streamer?.updatePlaybackPosition(fraction: position / duration, videoDuration: duration)
-        }
-
         // Check auto-completion (Hayase player.svelte checkCompletion)
         checkCompletion()
 
@@ -3542,20 +3248,9 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
             pipController?.setPlaybackRate(isPaused ? 0 : 1)
             pipController?.updatePlaybackState()
         }
-
-        // Don't pause the torrent when the video is paused. Like Hayase,
-        // we keep the torrent downloading at reduced effective speed (no
-        // active piece deadline boosting while playback is stopped).
-        // Fully pausing the torrent (handle.pause()) blocks
-        // LocalStreamServer.waitForLocalPieces() indefinitely, which
-        // breaks seeks while paused.
-        if !isPaused {
-            userRequestedPause = false
-        }
     }
 
     func renderer(_ renderer: MPVWrapper, didChangeLoading isLoading: Bool) {
-        // Torrent is never paused, so no safety-valve resume is needed.
         updateBuffering(isLoading)
         if !isLoading {
             ExternalDisplayManager.shared.videoDidBecomeReady(self)
@@ -3755,7 +3450,6 @@ extension VideoPlayerViewController: PiPControllerDelegate {
     }
 
     func pipControllerPause(_ controller: PiPController) {
-        userRequestedPause = true
         surface.mpv.pausePlayback()
     }
 

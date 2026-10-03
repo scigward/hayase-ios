@@ -64,10 +64,10 @@ enum PeerTableLayout {
                 16 + width(row.ip, font: ipFont),
                 width(String(row.client.prefix(21)), font: font),
                 progressWidth,
-                22 + width(TorrentDetailViewController.fastPrettyBits(row.downloadSpeed * 8) + "/s", font: font),
-                22 + width(TorrentDetailViewController.fastPrettyBits(row.uploadSpeed * 8) + "/s", font: font),
-                width(TorrentDetailViewController.fastPrettyBytes(row.downloaded), font: font),
-                width(TorrentDetailViewController.fastPrettyBytes(row.uploaded), font: font),
+                22 + width(TorrentFormat.fastPrettyBits(row.downloadSpeed * 8) + "/s", font: font),
+                22 + width(TorrentFormat.fastPrettyBits(row.uploadSpeed * 8) + "/s", font: font),
+                width(TorrentFormat.fastPrettyBytes(row.downloaded), font: font),
+                width(TorrentFormat.fastPrettyBytes(row.uploaded), font: font),
                 result[7],
                 CGFloat(row.flags.count) * 22 + CGFloat(max(0, row.flags.count - 1)) * 8,
             ]
@@ -189,8 +189,8 @@ final class PeerInfoCell: UITableViewCell {
         progressView.configure(progress: row.progress, animated: representedIP == row.ip)
         downloadSpeedView.configure(bytesPerSecond: row.downloadSpeed, kind: .download)
         uploadSpeedView.configure(bytesPerSecond: row.uploadSpeed, kind: .upload)
-        downloadedLabel.text = TorrentDetailViewController.fastPrettyBytes(row.downloaded)
-        uploadedLabel.text = TorrentDetailViewController.fastPrettyBytes(row.uploaded)
+        downloadedLabel.text = TorrentFormat.fastPrettyBytes(row.downloaded)
+        uploadedLabel.text = TorrentFormat.fastPrettyBytes(row.uploaded)
         countryView.configure(ip: row.ip)
         flagsView.configure(flags: row.flags)
         representedIP = row.ip

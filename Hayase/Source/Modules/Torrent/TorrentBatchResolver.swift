@@ -10,7 +10,6 @@
 //
 
 import Foundation
-import LibTorrent
 
 /// Anime filename parser + episode matcher for torrent batches.
 /// Only downloads the single episode the user selected instead of the entire batch.
@@ -48,61 +47,6 @@ struct TorrentBatchResolver {
         let episodeNumbers: [String]
     }
 
-    struct ResolvedFile {
-        struct Metadata {
-            let episode: EpisodeReference
-            let episodeEnd: Int?
-            let media: AnimeItem?
-            let failed: Bool
-            let parsedFilename: ParsedFilename?
-        }
-
-        let entry: FileEntry
-        let metadata: Metadata
-
-        var episode: Int { metadata.episode.intValue ?? 0 }
-        var episodeReference: EpisodeReference { metadata.episode }
-        var episodeEnd: Int? { metadata.episodeEnd }
-        var media: AnimeItem? { metadata.media }
-        var failed: Bool { metadata.failed }
-        var parsedFilename: ParsedFilename? { metadata.parsedFilename }
-
-        init(entry: FileEntry,
-             episode: Int,
-             episodeEnd: Int? = nil,
-             media: AnimeItem? = nil,
-             failed: Bool = false,
-             parsedFilename: ParsedFilename? = nil) {
-            self.init(entry: entry,
-                      episode: .number(Double(episode)),
-                      episodeEnd: episodeEnd,
-                      media: media,
-                      failed: failed,
-                      parsedFilename: parsedFilename)
-        }
-
-        init(entry: FileEntry,
-             episode: EpisodeReference,
-             episodeEnd: Int? = nil,
-             media: AnimeItem? = nil,
-             failed: Bool = false,
-             parsedFilename: ParsedFilename? = nil) {
-            self.entry = entry
-            self.metadata = Metadata(episode: episode,
-                                     episodeEnd: episodeEnd,
-                                     media: media,
-                                     failed: failed,
-                                     parsedFilename: parsedFilename)
-        }
-    }
-
-    struct BatchResolution {
-        let target: ResolvedFile?
-        let targetAnimeFiles: [ResolvedFile]
-        let otherFiles: [FileEntry]
-        let resolvedFiles: [ResolvedFile]
-    }
-
     struct ResolvedItem<Item> {
         let item: Item
         let episode: EpisodeReference
@@ -120,51 +64,7 @@ struct TorrentBatchResolver {
         let resolvedFiles: [ResolvedItem<Item>]
     }
 
-    typealias ResolveResult = BatchResolution
-
     // MARK: - Private types
-
-    private struct ParsedFile {
-        let entry: FileEntry
-        let animeTitle: String
-        let animeSeasonValues: [String]
-        let animeYearValues: [String]
-        let animeTypes: [String]
-        let episodeNumbers: [String]
-
-        var animeSeason: Int? { animeSeasonValues.first.flatMap(parseEpisodeInt) }
-        var animeYear: Int? { animeYearValues.first.flatMap(parseEpisodeInt) }
-
-        var filename: ParsedFilename {
-            ParsedFilename(animeTitle: animeTitle,
-                           animeSeason: animeSeason,
-                           animeYear: animeYear,
-                           animeSeasonValues: animeSeasonValues,
-                           animeYearValues: animeYearValues,
-                           animeTypes: animeTypes,
-                           episodeNumbers: episodeNumbers)
-        }
-    }
-
-    private struct ResolvedCandidate {
-        let entry: FileEntry
-        let episode: EpisodeReference
-        let episodeEnd: Int?
-        let media: AnimeItem?
-        let failed: Bool
-        let parseObject: ParsedFile?
-
-        var episodeNumber: Int { episode.intValue ?? 0 }
-
-        var publicFile: ResolvedFile {
-            ResolvedFile(entry: entry,
-                         episode: episode,
-                         episodeEnd: episodeEnd,
-                         media: media,
-                         failed: failed,
-                         parsedFilename: parseObject?.filename)
-        }
-    }
 
     private struct SeasonResolveResult {
         let media: AnimeItem
@@ -236,47 +136,6 @@ struct TorrentBatchResolver {
 
     // MARK: - Public API
 
-    /// Filename-only fallback for flows that do not have AniList media yet.
-    ///
-    /// This keeps the same batch result shape as the AniList-backed resolver so
-    /// callers do not fall back to raw torrent-file indexing.
-    func resolveByFilename(files: [FileEntry], targetEpisode: Int) -> BatchResolution {
-        let videoFiles = files.filter { Self.isVideoFile($0.name) }
-        let otherFiles = files.filter { !Self.isVideoFile($0.name) }
-        let choices = Self.filenameChoices(from: videoFiles) { $0.name }
-
-        if choices.count == 1, let choice = choices.first {
-            let file = ResolvedFile(entry: choice.item,
-                                    episode: .number(Double(targetEpisode)),
-                                    parsedFilename: choice.parsedFilename)
-            return BatchResolution(target: file,
-                                   targetAnimeFiles: [file],
-                                   otherFiles: otherFiles,
-                                   resolvedFiles: [file])
-        }
-
-        let resolvedFiles = choices.map { choice in
-            ResolvedFile(entry: choice.item,
-                         episode: choice.episode,
-                         parsedFilename: choice.parsedFilename)
-        }
-        let targetAnimeFiles = Self.sortedFilenameChoices(choices).map { choice in
-            ResolvedFile(entry: choice.item,
-                         episode: choice.episode,
-                         parsedFilename: choice.parsedFilename)
-        }
-        let target = Self.pickFilenameChoice(from: choices, targetEpisode: targetEpisode).map { choice in
-            ResolvedFile(entry: choice.item,
-                         episode: choice.episode,
-                         parsedFilename: choice.parsedFilename)
-        }
-
-        return BatchResolution(target: target,
-                               targetAnimeFiles: targetAnimeFiles,
-                               otherFiles: otherFiles,
-                               resolvedFiles: resolvedFiles)
-    }
-
     static func selectByFilename<Item>(from items: [Item],
                                        targetEpisode: Int,
                                        name: (Item) -> String?) -> Item? {
@@ -285,10 +144,8 @@ struct TorrentBatchResolver {
         return pickFilenameChoice(from: choices, targetEpisode: targetEpisode)?.item
     }
 
-    /// AniList-backed selector for file lists that are not represented by
-    /// libtorrent `FileEntry` values, such as the WebTorrent backend. This
-    /// mirrors the same resolver path as `resolve(files:targetEpisode:targetMedia:)`
-    /// instead of falling back to raw filename episode matching.
+    /// AniList-backed selector for a list of items, such as the files of a WebTorrent torrent. It
+    /// follows the resolver of interface instead of falling back to raw filename episode matching.
     func selectByAnime<Item>(from items: [Item],
                              targetEpisode: Int,
                              targetMedia: AnimeItem,
@@ -359,157 +216,7 @@ struct TorrentBatchResolver {
         }
     }
 
-    /// AniList-backed resolver that mirrors the web interface resolver.
-    func resolve(files: [FileEntry], targetEpisode: Int, targetMedia: AnimeItem, completion: @escaping (ResolveResult) -> Void) {
-        let videoFiles = files.filter { Self.isVideoFile($0.name) }
-        let otherFiles = files.filter { !Self.isVideoFile($0.name) }
-        guard !videoFiles.isEmpty else {
-            completion(ResolveResult(target: nil, targetAnimeFiles: [], otherFiles: otherFiles, resolvedFiles: []))
-            return
-        }
-
-        let parsedFiles = videoFiles
-            .compactMap { Self.parseFile($0) }
-            .filter { parsed in
-                !Self.typeExclusions.contains(parsed.animeTypes.first?.uppercased() ?? "")
-            }
-
-        if parsedFiles.count == 1, let parsed = parsedFiles.first {
-            let candidate = Self.toCandidate(parsed.entry, parseObject: parsed, media: targetMedia, episode: targetEpisode, failed: false)
-            completion(ResolveResult(target: candidate.publicFile,
-                                     targetAnimeFiles: [candidate.publicFile],
-                                     otherFiles: otherFiles,
-                                     resolvedFiles: [candidate.publicFile]))
-            return
-        }
-
-        resolveFileAnime(parsedFiles) { resolvedCandidates in
-            var candidates = resolvedCandidates
-            var targetAnimeFiles = candidates.filter { $0.media?.id == targetMedia.id }
-
-            if targetAnimeFiles.isEmpty {
-                if !candidates.isEmpty {
-                    let commonTitle = Self.highestOccurence(candidates) { candidate in
-                        candidate.parseObject?.animeTitle ?? ""
-                    }
-                    targetAnimeFiles = candidates.filter { ($0.parseObject?.animeTitle ?? "") == commonTitle }
-                } else {
-                    candidates = videoFiles.map { file in
-                        let parsed = Self.parseFile(file)
-                        return Self.toCandidate(file,
-                                                parseObject: parsed,
-                                                media: targetMedia,
-                                                episode: Self.episodeReference(from: parsed?.episodeNumbers.first),
-                                                failed: false)
-                    }
-                    targetAnimeFiles = candidates
-                }
-            }
-
-            targetAnimeFiles = Self.sortedCandidates(targetAnimeFiles)
-
-            let target = targetAnimeFiles.first { $0.episode.matches(targetEpisode) }
-                ?? targetAnimeFiles.first { $0.episode.matches(1) }
-                ?? targetAnimeFiles.first
-                ?? candidates.first
-
-            completion(ResolveResult(target: target?.publicFile,
-                                     targetAnimeFiles: targetAnimeFiles.map { $0.publicFile },
-                                     otherFiles: otherFiles,
-                                     resolvedFiles: candidates.map { $0.publicFile }))
-        }
-    }
-
     // MARK: - Interface resolver parity
-
-    private func resolveFileAnime(_ parsedFiles: [ParsedFile],
-                                  completion: @escaping ([ResolvedCandidate]) -> Void) {
-        guard !parsedFiles.isEmpty else {
-            completion([])
-            return
-        }
-
-        let keys = Self.orderedUnique(parsedFiles.map { Self.cacheKey(for: $0) })
-        var titleIDs = Self.cachedTitleIDs(for: keys)
-
-        let titleGroups: [(key: String, titles: [String], year: String?)] = keys.compactMap { key in
-            guard titleIDs[key] == nil,
-                  let parsed = parsedFiles.first(where: { Self.cacheKey(for: $0) == key }) else { return nil }
-            return (key: key, titles: Self.alternativeTitles(for: parsed), year: parsed.animeYearValues.first)
-        }
-
-        func fetchResolvedMedia() {
-            let ids = Self.orderedUnique(keys.compactMap { titleIDs[$0] })
-            var mediaByID: [Int: AnimeItem] = [:]
-
-            func fetchID(at index: Int) {
-                guard index < ids.count else {
-                    buildCandidates(mediaByID: mediaByID)
-                    return
-                }
-
-                let id = ids[index]
-                AniListClient.shared.fetchResolverMediaByIdResult(id) { result in
-                    switch result {
-                    case .success(let item):
-                        mediaByID[id] = item
-                    case .failure(let error):
-                        NSLog("[TorrentBatchResolver] Resolver media fetch failed: %@", error.description)
-                    }
-                    fetchID(at: index + 1)
-                }
-            }
-
-            fetchID(at: 0)
-        }
-
-        func buildCandidates(mediaByID: [Int: AnimeItem]) {
-            var candidates: [ResolvedCandidate] = []
-
-            func build(at index: Int) {
-                guard index < parsedFiles.count else {
-                    completion(candidates)
-                    return
-                }
-
-                let parsed = parsedFiles[index]
-                let key = Self.cacheKey(for: parsed)
-                guard let id = titleIDs[key], let media = mediaByID[id] else {
-                    build(at: index + 1)
-                    return
-                }
-
-                Self.resolveEpisode(parseObject: parsed, media: media) { resolvedMedia, episode, episodeEnd, failed in
-                    candidates.append(Self.toCandidate(parsed.entry,
-                                                       parseObject: parsed,
-                                                       media: resolvedMedia,
-                                                       episode: episode,
-                                                       episodeEnd: episodeEnd,
-                                                       failed: failed))
-                    build(at: index + 1)
-                }
-            }
-
-            build(at: 0)
-        }
-
-        AniListClient.shared.searchResolverAnimeIDsResult(titleGroups: titleGroups) { result in
-            switch result {
-            case .success(let ids):
-                Self.storeTitleIDs(ids)
-                titleIDs.merge(ids) { cached, _ in cached }
-            case .failure(let error):
-                NSLog("[TorrentBatchResolver] AniList resolver search failed: %@", error.description)
-            }
-            fetchResolvedMedia()
-        }
-    }
-
-    private static func resolveEpisode(parseObject: ParsedFile,
-                                       media: AnimeItem,
-                                       completion: @escaping (AnimeItem, EpisodeReference, Int?, Bool) -> Void) {
-        resolveEpisode(parsedFilename: parseObject.filename, media: media, completion: completion)
-    }
 
     private static func resolveEpisode(parsedFilename: ParsedFilename,
                                        media: AnimeItem,
@@ -778,16 +485,6 @@ struct TorrentBatchResolver {
         return typeExclusions.contains(parsed.animeTypes.first?.uppercased() ?? "")
     }
 
-    private static func parseFile(_ entry: FileEntry) -> ParsedFile? {
-        guard let parsed = parseFileName(entry.name) else { return nil }
-        return ParsedFile(entry: entry,
-                          animeTitle: parsed.animeTitle,
-                          animeSeasonValues: parsed.animeSeasonValues,
-                          animeYearValues: parsed.animeYearValues,
-                          animeTypes: parsed.animeTypes,
-                          episodeNumbers: parsed.episodeNumbers)
-    }
-
     private static func parseFileName(_ filename: String) -> (animeTitle: String, animeSeason: Int?, animeYear: Int?, animeSeasonValues: [String], animeYearValues: [String], animeTypes: [String], episodeNumbers: [String])? {
         let name = fixedAnitomyFilename((filename as NSString).lastPathComponent)
         let anitomy = Anitomy()
@@ -991,53 +688,6 @@ struct TorrentBatchResolver {
         return String(value)
     }
 
-    private static func toCandidate(_ entry: FileEntry,
-                                    parseObject: ParsedFile?,
-                                    media: AnimeItem?,
-                                    episode: Int,
-                                    episodeEnd: Int? = nil,
-                                    failed: Bool) -> ResolvedCandidate {
-        toCandidate(entry,
-                    parseObject: parseObject,
-                    media: media,
-                    episode: .number(Double(episode)),
-                    episodeEnd: episodeEnd,
-                    failed: failed)
-    }
-
-    private static func toCandidate(_ entry: FileEntry,
-                                    parseObject: ParsedFile?,
-                                    media: AnimeItem?,
-                                    episode: EpisodeReference,
-                                    episodeEnd: Int? = nil,
-                                    failed: Bool) -> ResolvedCandidate {
-        ResolvedCandidate(entry: entry,
-                          episode: episode,
-                          episodeEnd: episodeEnd,
-                          media: media,
-                          failed: failed,
-                          parseObject: parseObject)
-    }
-
-    private static func sortedCandidates(_ candidates: [ResolvedCandidate]) -> [ResolvedCandidate] {
-        candidates.enumerated().sorted { lhs, rhs in
-            let left = lhs.element
-            let right = rhs.element
-            let leftSeason = left.parseObject?.animeSeason ?? 1
-            let rightSeason = right.parseObject?.animeSeason ?? 1
-            if leftSeason != rightSeason {
-                return leftSeason > rightSeason
-            }
-
-            switch (left.episode.numericValue, right.episode.numericValue) {
-            case let (leftEpisode?, rightEpisode?) where leftEpisode != rightEpisode:
-                return leftEpisode < rightEpisode
-            default:
-                return lhs.offset < rhs.offset
-            }
-        }.map { $0.element }
-    }
-
     private static func sortedItemCandidates<Item>(_ candidates: [ResolvedItemCandidate<Item>]) -> [ResolvedItemCandidate<Item>] {
         candidates.sorted { lhs, rhs in
             let leftSeason = lhs.parseObject.animeSeason ?? 1
@@ -1055,10 +705,6 @@ struct TorrentBatchResolver {
         }
     }
 
-    private static func cacheKey(for parseObject: ParsedFile) -> String {
-        cacheKey(for: parseObject.filename)
-    }
-
     private static func cacheKey(for parsedFilename: ParsedFilename) -> String {
         var key = AniListUtil.removeDiacritics(parsedFilename.animeTitle)
         if let year = parsedFilename.animeYearValues.first {
@@ -1068,10 +714,6 @@ struct TorrentBatchResolver {
             key += "S\(season)"
         }
         return key
-    }
-
-    private static func alternativeTitles(for parseObject: ParsedFile) -> [String] {
-        alternativeTitles(for: parseObject.filename)
     }
 
     /// resolver.ts `alternativeTitles`, in the order it adds them: the first title that finds a media

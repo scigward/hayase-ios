@@ -42,10 +42,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // the display. A dedicated window is created only for active video.
         _ = ExternalDisplayManager.shared
 
-        // Force TorrentService initialization so libtorrent restores previous
-        // torrents via fastResume before we attempt session restore.
-        _ = TorrentService.sharedTorrentService
-
         // Restore mini-player session from previous launch (Hayase:
         // server.active auto-mounts the player on app reload).
         // Dispatched async to let the root view controller finish loading

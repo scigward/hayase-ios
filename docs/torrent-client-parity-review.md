@@ -52,9 +52,7 @@ Known differences requiring further work: UIKit menus/confirmation presentation
 are native rather than web dropdown/dialog geometry; table column sizing uses
 native minimum widths rather than the browser's automatic table algorithm;
 library dates do not yet include the web's aging-warning icon/tooltip; refresh
-cadences remain native; the optional legacy libtorrent backend still lacks the
-web backend's peer/tracker data and library metadata rescan implementation.
-Those existing backend limitations were not replaced with invented results.
+cadences remain native.
 
 Device/Codemagic acceptance: verify Donate at iOS 26; client root/subroutes at
 390, 640, 768, 1024 and 1280pt, including split view and rotation; scroll every

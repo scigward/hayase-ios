@@ -33,8 +33,7 @@ Reference: `interface/src/lib/components/ui/torrentclient` and
 
 This is not a claim of complete pixel or functional identity: native sort menus,
 library confirmation/promise notifications and expired-metadata date indicators
-still differ from web. Legacy LibTorrent peer data is outside this WebTorrent
-fix. No Apple toolchain or device is available in this workspace.
+still differ from web. No Apple toolchain or device is available in this workspace.
 
 ## Validation
 

@@ -265,7 +265,7 @@ final class ExtensionSearchViewController: UIViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(downloadedDidChange),
                                                name: WebTorrentDownloaded.didChange, object: nil)
         // The backend starts on demand here, so what it has cached is read before it is needed.
-        if TorrentBackendManager.shared.currentKind == .webtorrent { WebTorrentDownloaded.shared.refresh() }
+        WebTorrentDownloaded.shared.refresh()
         currentEpisode = initialEpisode
         if shouldAutoSelectOnSearch {
             autoSelectAfterSearch = true
@@ -1285,48 +1285,7 @@ final class ExtensionSearchViewController: UIViewController {
         if videos.count == 1 {
             targetVideo = videos[0]
             targetIndex = torrentFileIndex(from: targetVideo?.videoIndex?.intValue) ?? 0
-        } else if let handle = vs.torrentHandle,
-                  let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle in
-                      activeHandle.snapshot
-                  }) {
-            let resolver = TorrentBatchResolver()
-            let files = snap.files
-            if let animeItem {
-                isResolvingPendingMetadata = true
-                resolver.resolve(files: files, targetEpisode: currentEpisode, targetMedia: animeItem) { [weak self] result in
-                    guard let self else { return }
-                    self.isResolvingPendingMetadata = false
-                    var resolvedVideo: Videos?
-                    var resolvedIndex: UInt = 0
-                    if let match = result.target,
-                       let index = torrentFileIndex(from: match.entry.index) {
-                        resolvedIndex = index
-                        resolvedVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
-                    }
-                    self.presentPendingVideo(vs: vs,
-                                             entity: entity,
-                                             targetVideo: resolvedVideo,
-                                             targetIndex: resolvedIndex,
-                                             videos: videos,
-                                             batchFiles: result.resolvedFiles)
-                }
-                return
-            } else {
-                let result = resolver.resolveByFilename(files: files, targetEpisode: currentEpisode)
-                if let match = result.target,
-                   let index = torrentFileIndex(from: match.entry.index) {
-                    targetIndex = index
-                    targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
-                    presentPendingVideo(vs: vs,
-                                        entity: entity,
-                                        targetVideo: targetVideo,
-                                        targetIndex: targetIndex,
-                                        videos: videos,
-                                        batchFiles: result.resolvedFiles)
-                    return
-                }
-            }
-        } else if TorrentBackendManager.shared.currentKind == .webtorrent {
+        } else {
             let resolver = TorrentBatchResolver()
             if let animeItem {
                 isResolvingPendingMetadata = true
@@ -1343,7 +1302,6 @@ final class ExtensionSearchViewController: UIViewController {
                                              targetVideo: resolvedVideo,
                                              targetIndex: resolvedIndex,
                                              videos: videos,
-                                             batchFiles: [],
                                              resolvedVideoFiles: result.resolvedFiles)
                 }
                 return
@@ -1358,7 +1316,6 @@ final class ExtensionSearchViewController: UIViewController {
                              targetVideo: targetVideo,
                              targetIndex: targetIndex,
                              videos: videos,
-                             batchFiles: [],
                              resolvedVideoFiles: [])
     }
 
@@ -1367,7 +1324,6 @@ final class ExtensionSearchViewController: UIViewController {
                                      targetVideo: Videos?,
                                      targetIndex: UInt,
                                      videos: [Videos],
-                                     batchFiles: [TorrentBatchResolver.ResolvedFile],
                                      resolvedVideoFiles: [TorrentBatchResolver.ResolvedItem<Videos>] = []) {
         guard pendingVideoService === vs else { return }
         var targetVideo = targetVideo
@@ -1385,20 +1341,17 @@ final class ExtensionSearchViewController: UIViewController {
 
         guard let video = targetVideo else { return }
 
-        // Select file for streaming and update path.
-        vs.selectFileForStreaming(targetIndex)
+        // Update the path of the file.
         _ = vs.UpdateFilePathForFileIndex(targetIndex)
 
         // Clean up pending state before presenting.
         guard let player = pendingPlayer else { return }
         cleanupPendingState()
-        let activeFile = batchFiles.first { torrentFileIndex(from: $0.entry.index) == Optional(targetIndex) }
         let activeVideoFile = resolvedVideoFiles.first { $0.item.videoIndex?.uintValue == targetIndex }
-        let activeMedia = activeFile?.media ?? activeVideoFile?.media ?? self.animeItem
-        let activeEpisode = activeFile?.episodeReference.intValue ?? activeVideoFile?.episodeReference.intValue ?? self.currentEpisode
+        let activeMedia = activeVideoFile?.media ?? self.animeItem
+        let activeEpisode = activeVideoFile?.episodeReference.intValue ?? self.currentEpisode
 
         player.videoEntity       = video
-        player.torrentHandle     = vs.torrentHandle
         player.videoService      = vs
         player.fileIndex         = targetIndex
         player.anilistID         = activeMedia?.id ?? Int(entity.animes?.animeAnilistId ?? 0)
@@ -1406,7 +1359,6 @@ final class ExtensionSearchViewController: UIViewController {
         player.totalEpisodes     = activeMedia.map { TorrentBatchResolver.episodes(for: $0) } ?? self.animeItem?.episodes ?? 0
         player.allVideos         = videos
         player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
-        player.batchFiles        = batchFiles
         player.resolvedVideoFiles = resolvedVideoFiles
         // Hayase web mediahandler.svelte playEpisode(): when the target
         // episode is not in the current batch, initiate a new search.

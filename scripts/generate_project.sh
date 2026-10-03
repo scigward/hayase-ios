@@ -10,7 +10,7 @@ fi
 
 xcodegen generate
 
-# Create workspace that includes both the generated project and LibTorrent
+# Create the workspace the CI builds from
 WORKSPACE="Hayase.xcworkspace"
 mkdir -p "$WORKSPACE"
 
@@ -20,9 +20,6 @@ cat > "$WORKSPACE/contents.xcworkspacedata" <<'EOF'
    version = "1.0">
    <FileRef
       location = "group:Hayase.xcodeproj">
-   </FileRef>
-   <FileRef
-      location = "group:Component/LibTorrent-Swift/LibTorrent.xcodeproj">
    </FileRef>
 </Workspace>
 EOF

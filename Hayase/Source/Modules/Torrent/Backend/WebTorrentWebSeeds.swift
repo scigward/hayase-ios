@@ -8,8 +8,7 @@
 import Foundation
 
 /// Adds the NZB and HTTP web seeds that the user's extensions provide for a
-/// torrent on the WebTorrent backend, so it also downloads from Usenet and
-/// HTTP mirrors. The libtorrent backend has no web seed support.
+/// torrent, so it also downloads from Usenet and HTTP mirrors.
 enum WebTorrentWebSeeds {
     /// `episode` is nil when it is not known, for example a torrent opened from Downloads.
     /// `media` is the media the caller already has; it is looked up only when there is none,

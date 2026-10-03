@@ -1,6 +1,5 @@
 // Mirrors: ui/torrentclient/files/table.svelte and cells.
 import UIKit
-import LibTorrent
 
 // MARK: - FileEntryTableCell
 
@@ -118,18 +117,9 @@ final class FileEntryTableCell: UITableViewCell {
         }
     }
 
-    func configure(entry: FileEntry, streamCount: Int) {
-        configureName(entry.name)
-        sizeLabel.text = TorrentDetailViewController.fastPrettyBytes(entry.size)
-        let progress = Float(entry.progress)
-        progressBar.progress = progress
-        progressLabel.text = String(format: "%.1f%%", progress * 100)
-        streamsLabel.text = "\(streamCount)"
-    }
-
     func configure(entry: WebTorrentFileInfo) {
         configureName(entry.name)
-        sizeLabel.text = TorrentDetailViewController.fastPrettyBytes(entry.size)
+        sizeLabel.text = TorrentFormat.fastPrettyBytes(entry.size)
         let progress = Float(max(0, min(entry.progress, 1)))
         progressBar.progress = progress
         progressLabel.text = String(format: "%.1f%%", progress * 100)

@@ -74,6 +74,6 @@ final class PeerSpeedCellContent: UIView {
     func configure(bytesPerSecond: UInt64, kind: Kind) {
         imageView.image = UIImage.hayaseIcon(kind.iconName, pointSize: 12)
         imageView.tintColor = kind.tint
-        label.text = TorrentDetailViewController.fastPrettyBits(bytesPerSecond * 8) + "/s"
+        label.text = TorrentFormat.fastPrettyBits(bytesPerSecond * 8) + "/s"
     }
 }

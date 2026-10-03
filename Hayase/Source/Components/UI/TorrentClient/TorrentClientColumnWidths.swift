@@ -3,7 +3,7 @@ import UIKit
 
 enum TorrentClientColumnWidths {
     static func files(entries: [WebTorrentFileInfo]) -> [CGFloat?] {
-        files(sizes: entries.map { TorrentDetailViewController.fastPrettyBytes($0.size) },
+        files(sizes: entries.map { TorrentFormat.fastPrettyBytes($0.size) },
               streams: entries.map(\.selections))
     }
 
@@ -21,7 +21,7 @@ enum TorrentClientColumnWidths {
         // Torrent Name is 16 + 16. The checkbox itself is an 18pt border box.
         return [248, measured("Episode", values: entries.map { $0.episode.map(String.init) ?? "?" }),
                 measured("Files", values: entries.map { String($0.files) }),
-                measured("Size", values: entries.map { $0.size == 0 ? "?" : TorrentDetailViewController.fastPrettyBytes($0.size) }),
+                measured("Size", values: entries.map { $0.size == 0 ? "?" : TorrentFormat.fastPrettyBytes($0.size) }),
                 max(measured("Status", values: ["?"]),
                     max(textWidth("In Progress", font: .nunito(ofSize: 14)) + 16,
                         textWidth("Completed", font: .nunito(ofSize: 14)) + 16)),
