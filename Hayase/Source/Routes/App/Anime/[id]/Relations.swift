@@ -233,6 +233,10 @@ final class RelationGraphCell: UITableViewCell {
     private var fitLoopId: Int?
     private var fitTimeoutId: Int?
     private var lastNodeSelection: (id: Int, time: CFTimeInterval)?
+    /// What the last layout was made from and what it found. A graph with the same nodes, sizes and edges
+    /// is laid out the same way, and a layout is asked for four times while the cell opens (`applyGraph`
+    /// does it twice, `mount` twice), so only the first of the same kind does the work of dagre.
+    private var layoutCache: (key: String, positions: [String: Dagre.Position])?
 
     var onSelectMedia: ((Int) -> Void)?
     var onRefreshGraph: (() -> Void)?
@@ -408,6 +412,7 @@ final class RelationGraphCell: UITableViewCell {
         graphSignature = nil
         needsMount = true
         lastNodeSelection = nil
+        layoutCache = nil
 
         flow.nodes.set([])
         flow.edges.set([])
@@ -480,10 +485,19 @@ final class RelationGraphCell: UITableViewCell {
                 height: node.measured?.height ?? 48.6 + (Double(titleLength) / 20).rounded(.up) * 19.2)
         }
 
-        let positions = Dagre.layout(
-            nodes: layoutNodes,
-            edges: edges.map { Dagre.Edge(source: $0.source, target: $0.target) },
-            options: Dagre.Options(rankdir: .leftToRight, nodesep: 50, edgesep: 50, ranksep: 120, ranker: .tightTree))
+        let key = layoutNodes.map { "\($0.id):\($0.width):\($0.height)" }.joined(separator: ",")
+            + "|" + edges.map { "\($0.source)>\($0.target)" }.joined(separator: ",")
+
+        let positions: [String: Dagre.Position]
+        if let layoutCache, layoutCache.key == key {
+            positions = layoutCache.positions
+        } else {
+            positions = Dagre.layout(
+                nodes: layoutNodes,
+                edges: edges.map { Dagre.Edge(source: $0.source, target: $0.target) },
+                options: Dagre.Options(rankdir: .leftToRight, nodesep: 50, edgesep: 50, ranksep: 120, ranker: .tightTree))
+            layoutCache = (key, positions)
+        }
 
         let layoutedNodes = nodes.map { node -> Node in
             let position = positions[node.id] ?? Dagre.Position(x: 0, y: 0, rank: 0, order: 0)
@@ -492,8 +506,22 @@ final class RelationGraphCell: UITableViewCell {
             let x = position.x - (node.measured?.width ?? 0) / 2
             let y = position.y - (node.measured?.height ?? 0) / 2
 
+            let isCurrent = (node.data["id"] as? Int) == mediaID
+
+            // a node that is where it is to be, with what it is to show, stays the very node it is: the
+            // flow does not have to take it up again
+            if node.type == "customText",
+               node.sourcePosition == .right,
+               node.targetPosition == .left,
+               node.position.x == x,
+               node.position.y == y,
+               (node.data["current"] as? Bool) == isCurrent,
+               (node.data["accent"] as? UIColor) == accentColor {
+                return node
+            }
+
             var data = node.data
-            data["current"] = (node.data["id"] as? Int) == mediaID
+            data["current"] = isCurrent
             data["accent"] = accentColor
 
             let copy = node.copy()
@@ -507,10 +535,16 @@ final class RelationGraphCell: UITableViewCell {
 
         let layoutedEdges = edges.map { edge -> Edge in
             let touchesMedia = (edge.data?["ids"] as? [Int])?.contains(mediaID) ?? false
+            let style = touchesMedia ? "--xy-edge-stroke: var(--custom)" : ""
+            let labelStyle = touchesMedia ? "--xy-edge-label-color: var(--custom)" : ""
+
+            if edge.style == style && edge.labelStyle == labelStyle {
+                return edge
+            }
 
             let copy = edge.copy()
-            copy.style = touchesMedia ? "--xy-edge-stroke: var(--custom)" : ""
-            copy.labelStyle = touchesMedia ? "--xy-edge-label-color: var(--custom)" : ""
+            copy.style = style
+            copy.labelStyle = labelStyle
             return copy
         }
 
@@ -518,10 +552,17 @@ final class RelationGraphCell: UITableViewCell {
     }
 
     private func onLayout() {
-        let result = layoutedElements(nodes: flow.nodes.get(), edges: flow.edges.get())
+        let nodes = flow.nodes.get()
+        let edges = flow.edges.get()
+        let result = layoutedElements(nodes: nodes, edges: edges)
 
-        flow.nodes.set(result.nodes)
-        flow.edges.set(result.edges)
+        // when nothing moved, nothing is set
+        if !Self.areSame(result.nodes, nodes) { flow.nodes.set(result.nodes) }
+        if !Self.areSame(result.edges, edges) { flow.edges.set(result.edges) }
+    }
+
+    private static func areSame<Element: AnyObject>(_ first: [Element], _ second: [Element]) -> Bool {
+        first.count == second.count && zip(first, second).allSatisfy { $0 === $1 }
     }
 
     private func fitAndLayout() {
