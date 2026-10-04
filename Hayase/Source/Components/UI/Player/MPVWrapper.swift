@@ -674,13 +674,18 @@ final class MPVWrapper {
         }
     }
 
+    /// `video.currentTime += seconds`. The seek is exact: mpv's own relative seek goes to a keyframe, so 2 seconds
+    /// could be as far as the next one (8 or 10 seconds on an anime release), and two taps in a row twice that.
     func seek(by seconds: Double) {
         let newPosition = max(0, cachedPosition + seconds)
         cachedPosition = newPosition
         withHandle(()) { handle in
-            commandSync(handle, ["seek", String(seconds), "relative"])
+            commandSync(handle, ["seek", String(seconds), "relative+exact"])
         }
     }
+
+    /// Whether mpv is seeking or waiting for data (a seek that is not done yet, or `paused-for-cache`)
+    var isLoadingNow: Bool { isLoading }
     
     func syncTimebase() { }
     

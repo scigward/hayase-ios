@@ -404,16 +404,28 @@ extension VideoPlayerViewController {
         updateInterfaceOverlayVisibility(animated: true)
         scheduleHide()
 
+        scheduleSeekDisplayEnd()
+    }
+
+    /// The target of a seek is shown, and the spinner with it, until mpv has restarted playback there: that is
+    /// `didChangeLoading(false)`. This is the end of a seek that mpv did not report, and it waits while mpv is still
+    /// loading, so that a seek to what has not been downloaded does not fall back to the old position after a moment.
+    func scheduleSeekDisplayEnd(after delay: TimeInterval = 1.5) {
         doubleTapSeekRestoreWork?.cancel()
         let restoreWork = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            if self.isBuffering {
+                self.scheduleSeekDisplayEnd(after: 0.25)
+                return
+            }
             self.doubleTapSeekRestoreWork = nil
             self.isSeeking = false
             self.pendingSeekDisplayTime = nil
             self.updateTimeUI()
+            self.updateInterfaceOverlayVisibility(animated: true)
         }
         doubleTapSeekRestoreWork = restoreWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: restoreWork)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: restoreWork)
     }
 
     func showSeekPreview(at fraction: CGFloat?) {

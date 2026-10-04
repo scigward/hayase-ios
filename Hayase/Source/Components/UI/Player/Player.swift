@@ -1099,13 +1099,15 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
 
         let seekAmount = seekDurationSeconds
         let newTime: Double
+        // from where the last seek is going, if it has not got there
+        let base = pendingSeekDisplayTime ?? currentTime
         if forward {
-            newTime = min(duration, currentTime + seekAmount)
+            newTime = min(duration, base + seekAmount)
             surface.mpv.seek(by: seekAmount)
             lastSeekTime = Date()
             showPlayerAnimation(icon: "fast-forward")
         } else {
-            newTime = max(0, currentTime - seekAmount)
+            newTime = max(0, base - seekAmount)
             surface.mpv.seek(by: -seekAmount)
             lastSeekTime = Date()
             showPlayerAnimation(icon: "rewind")
@@ -1113,16 +1115,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         pendingSeekDisplayTime = newTime
         renderSeekTargetUI(time: newTime)
 
-        let restoreWork = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.doubleTapSeekRestoreWork = nil
-            self.isSeeking = false
-            self.pendingSeekDisplayTime = nil
-            self.updateTimeUI()
-            self.updateInterfaceOverlayVisibility(animated: true)
-        }
-        doubleTapSeekRestoreWork = restoreWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: restoreWork)
+        scheduleSeekDisplayEnd()
     }
 
     // MARK: - Media session (player.svelte: native.setMediaSession, setActionHandler)
@@ -1384,11 +1377,13 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         if duration > 0, chaptersLoadedDuration != duration { loadChapters() }
         if !isBuffering, !isSeeking, duration > 0, position > 0 { thumbnailer.rememberFrame(at: position, from: renderer) }
         seekBar.buffer = duration > 0 ? CGFloat(min(1, max(0, (position + cacheSeconds) / duration))) : 0
-        if !isSeeking {
-            self.currentTime = position
-        }
+        // mpv reports the target as the position while a seek is not done, and the real one after it: the time is
+        // kept either way, and what is shown during a seek is decided by `isSeeking` (`updateTimeUI`)
+        self.currentTime = position
         updateTimeUI()
-        if duration > 0, position > 0 {
+        // the spinner is mpv's: a position that is not 0 does not mean that the data is there (a seek to what has not been
+        // downloaded reports its target at once)
+        if duration > 0, position > 0, !renderer.isLoadingNow {
             updateBuffering(false)
         }
         reportMediaSessionState(position: position)
@@ -1501,6 +1496,7 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
             doubleTapSeekRestoreWork = nil
             isSeeking = false
             pendingSeekDisplayTime = nil
+            updateTimeUI()
             updateInterfaceOverlayVisibility(animated: true)
         }
     }
