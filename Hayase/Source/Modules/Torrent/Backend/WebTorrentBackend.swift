@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Darwin
 
 enum WebTorrentBackendError: LocalizedError {
     case missingBridgeScript
@@ -135,7 +136,10 @@ final class WebTorrentBackend {
     private let lock = NSLock()
     private var startState: StartState = .idle
     private var pendingStarts: [(Result<Void, Error>) -> Void] = []
-    private let port = 43817
+    /// Where the bridge listens. 43817 while nothing holds it; when something does (another copy of the app that
+    /// is running, or one that is still closing) node cannot listen there, and every play of the run fails with
+    /// it, so the system gives a free port instead. It is chosen once, before node starts.
+    private let port = WebTorrentBackend.availablePort(preferred: 43817)
     /// Shared secret for this launch: the bridge answers only requests that present it.
     private let bridgeToken = UUID().uuidString
     private let startupErrorURL = FileManager.default.temporaryDirectory
@@ -147,6 +151,43 @@ final class WebTorrentBackend {
 
     /// What the bridge was last given, so a play does not send settings that did not change.
     private var appliedSettings: TorrentBackendSettings?
+
+    private static func availablePort(preferred: Int) -> Int {
+        loopbackPort(preferred) ?? loopbackPort(0) ?? preferred
+    }
+
+    /// `requested`, or the one the system chooses for 0, when a socket can be bound to it on the loopback address as
+    /// node binds its server (with SO_REUSEADDR); nil when something is listening there
+    private static func loopbackPort(_ requested: Int) -> Int? {
+        let descriptor = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { return nil }
+        defer { Darwin.close(descriptor) }
+
+        var reuse: Int32 = 1
+        Darwin.setsockopt(descriptor, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = UInt16(requested).bigEndian
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bound == 0 else { return nil }
+
+        var assigned = sockaddr_in()
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let named = withUnsafeMutablePointer(to: &assigned) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.getsockname(descriptor, $0, &length)
+            }
+        }
+        guard named == 0 else { return nil }
+        return Int(UInt16(bigEndian: assigned.sin_port))
+    }
 
     private func startErrorNotifications() {
         guard errorTimer == nil else { return }
