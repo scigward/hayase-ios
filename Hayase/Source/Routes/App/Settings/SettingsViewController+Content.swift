@@ -141,9 +141,9 @@ extension SettingsViewController {
         return combo
     }
 
+    /// `<a href='/#/app/license'>License Information</a>`
     func showLicense() {
-        guard let url = URL(string: "https://github.com/hayase-app/interface/blob/master/LICENSE") else { return }
-        UIApplication.shared.open(url)
+        Router.shared.navigate(.license)
     }
 }
 

@@ -28,6 +28,12 @@ final class Router {
         var noScroll = false
     }
 
+    /// `error(500, err)` of a `+layout.ts` whose load failed: the page the route shows in place of itself.
+    struct RouteError {
+        let status: Int
+        let message: String
+    }
+
     typealias Observer = (_ route: Route, _ kind: NavigationKind, _ options: NavigationOptions) -> Void
 
     private let history: History
@@ -41,6 +47,7 @@ final class Router {
     private var threadPayloads: [Int: AniListThread] = [:]
     private var loadedThreadRouteIDs: Set<Int> = []
     private var playerPayload: VideoPlayerViewController?
+    private var routeErrors: [String: RouteError] = [:]
 
     private init(initialRoute: Route) {
         history = History(initialRoute: initialRoute)
@@ -195,8 +202,10 @@ final class Router {
             case .failure(let error):
                 self.pendingAnimeNavigationID = nil
                 NSLog("[Router] Anime route preload failed: %@", error.description)
-                NotificationCenter.default.post(name: NSNotification.Name(Router.AnimeNavigationFailedNotification),
-                                                object: error as NSError)
+                // SvelteKit goes to the page all the same and shows its error page there
+                let route = Route.anime(id: item.id)
+                self.routeErrors[route.path] = RouteError(status: 500, message: error.description)
+                self.navigate(route, hostTabIndex: hostTabIndex)
             }
         }
     }
@@ -226,10 +235,17 @@ final class Router {
                 self.navigate(.animeThread(animeID: animeID, threadID: threadID), hostTabIndex: hostTabIndex)
             case .failure(let error):
                 self.pendingThreadNavigationID = nil
-                NotificationCenter.default.post(name: NSNotification.Name(Router.ThreadNavigationFailedNotification),
-                                                object: error as NSError)
+                // the thread route's `+layout.ts` throws, and its error page takes the place of the route
+                let route = Route.animeThread(animeID: animeID, threadID: threadID)
+                self.routeErrors[route.path] = RouteError(status: 500, message: error.description)
+                self.navigate(route, hostTabIndex: hostTabIndex)
             }
         }
+    }
+
+    /// The error the load of `route` ended with, once: the page that is shown instead of the route.
+    func takeRouteError(for route: Route) -> RouteError? {
+        routeErrors.removeValue(forKey: route.path)
     }
 
     func cacheThread(_ thread: AniListThread) {

@@ -758,6 +758,8 @@ final class HayaseSidebarController: UIViewController {
     private struct RouteLoadPayload {
         var anime: AnimeItem?
         var thread: AniListThread?
+        /// A load that failed: the route shows the error page instead of its page.
+        var error: Router.RouteError?
     }
 
     /// Nested SvelteKit layouts load concurrently. Keep the old route visible until all route-level data is ready.
@@ -765,6 +767,13 @@ final class HayaseSidebarController: UIViewController {
         var payload = RouteLoadPayload(anime: nil, thread: nil)
         var pending = 0
         var failed = false
+
+        // the navigation that already ran the load and failed (Router.navigateToAnime)
+        if let error = router.takeRouteError(for: route) {
+            payload.error = error
+            completion(payload)
+            return
+        }
 
         func finishOne() {
             pending -= 1
@@ -781,9 +790,9 @@ final class HayaseSidebarController: UIViewController {
                     payload.anime = item
                     finishOne()
                 case .failure(let error):
-                    failed = true
                     NSLog("[Sidebar] Anime route preload failed: %@", error.description)
-                    self.finishNavigationProgress()
+                    payload.error = Router.RouteError(status: 500, message: error.description)
+                    finishOne()
                 }
             }
         }
@@ -806,9 +815,9 @@ final class HayaseSidebarController: UIViewController {
                         payload.thread = thread
                         finishOne()
                     case .failure(let error):
-                        failed = true
                         NSLog("[Sidebar] Thread route preload failed: %@", error.description)
-                        self.finishNavigationProgress()
+                        payload.error = Router.RouteError(status: 500, message: error.description)
+                        finishOne()
                     }
                 }
             }
@@ -855,11 +864,21 @@ final class HayaseSidebarController: UIViewController {
 
             switch route {
             case .anime(let id):
-                self.showAnimeRoute(id: id, threadID: nil, kind: kind, preloaded: preloaded.anime, preloadedThread: nil, animated: navigationAnimated)
+                if let error = preloaded.error {
+                    self.showErrorPage(error, for: route, animated: navigationAnimated)
+                } else {
+                    self.showAnimeRoute(id: id, threadID: nil, kind: kind, preloaded: preloaded.anime, preloadedThread: nil, animated: navigationAnimated)
+                }
             case .animeThread(let animeID, let threadID):
-                self.showAnimeRoute(id: animeID, threadID: threadID, kind: kind, preloaded: preloaded.anime, preloadedThread: preloaded.thread, animated: navigationAnimated)
+                if let error = preloaded.error {
+                    self.showErrorPage(error, for: route, animated: navigationAnimated)
+                } else {
+                    self.showAnimeRoute(id: animeID, threadID: threadID, kind: kind, preloaded: preloaded.anime, preloadedThread: preloaded.thread, animated: navigationAnimated)
+                }
             case .player:
                 self.showPlayerRoute(animated: uiAnimated)
+            case .license:
+                self.showLicenseRoute(animated: navigationAnimated)
             default:
                 break
             }
@@ -1031,6 +1050,19 @@ final class HayaseSidebarController: UIViewController {
         navigationController.pushViewController(detail, animated: animated)
         detail.applyEmbeddedThreadRoute(threadID: threadID, title: nil)
         restoreScrollPositionIfNeeded(for: router.currentRoute, kind: .push, noScroll: false)
+    }
+
+    /// `routes/app/+error.svelte`: the page of a route whose load failed.
+    private func showErrorPage(_ error: Router.RouteError, for route: Route, animated: Bool) {
+        guard let nav = hostNavigationController(for: route) else { return }
+        nav.pushViewController(ErrorPageViewController(status: error.status, message: error.message), animated: animated)
+    }
+
+    /// `routes/app/license/+page.svelte`
+    private func showLicenseRoute(animated: Bool) {
+        guard let nav = hostNavigationController(for: .license) else { return }
+        if nav.topViewController is LicensePageViewController { return }
+        nav.pushViewController(LicensePageViewController(), animated: animated)
     }
 
     private func showPlayerRoute(animated: Bool) {
@@ -1316,7 +1348,7 @@ extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecogniz
 
     private var isCurrentRouteOwnedByRouter: Bool {
         switch router.currentRoute {
-        case .anime, .animeThread, .player:
+        case .anime, .animeThread, .player, .license:
             return true
         default:
             return false

@@ -18,6 +18,7 @@ enum Route: Hashable {
     case client(ClientRoute)
     case settings(SettingsRoute)
     case profile
+    case license
     case anime(id: Int)
     case animeThread(animeID: Int, threadID: Int)
     case player
@@ -108,6 +109,8 @@ enum Route: Hashable {
             return "/app/settings/\(route.rawValue)"
         case .profile:
             return "/app/profile"
+        case .license:
+            return "/app/license"
         case .anime(let id):
             return "/app/anime/\(id)"
         case .animeThread(let animeID, let threadID):
@@ -133,7 +136,7 @@ enum Route: Hashable {
             return 5
         case .settings, .profile:
             return 6
-        case .anime, .animeThread, .player:
+        case .anime, .animeThread, .player, .license:
             return nil
         }
     }
@@ -143,7 +146,7 @@ enum Route: Hashable {
         switch self {
         case .home, .search, .schedule, .w2g, .chat, .client, .settings, .profile:
             return true
-        case .anime, .animeThread, .player:
+        case .anime, .animeThread, .player, .license:
             return false
         }
     }
@@ -206,6 +209,8 @@ enum Route: Hashable {
             }
         case "player":
             self = .player
+        case "license":
+            self = .license
         default:
             return nil
         }
