@@ -2,7 +2,13 @@
 //  Route.swift
 //  Hayase
 //
-//  Mirrors: src/routes/app/+layout.svelte, src/routes/app/client/+page.ts, src/routes/app/settings/+page.ts, src/routes/app/anime/[id]/thread/[threadId]/+layout.ts
+//  Mirrors: src/routes/app/+layout.svelte, src/routes/app/client/+page.ts, src/routes/app/settings/+page.ts, src/routes/app/anime/[id]/thread/[threadId]/+layout.ts,
+//  src/routes/app/extensions/install/[...url]/+page.ts
+//
+//  The routes that the interface has and this app does not: `/update` (the desktop and Android updater),
+//  `/app/settings/plugins` (desktop and Android) and `/authorize` (the web landing page of the OAuth sign-in,
+//  which the system's web authentication session replaces). `/` is the splash and `/setup/*` the setup, which have
+//  their own screens.
 //
 
 import Foundation
@@ -20,6 +26,9 @@ enum Route: Hashable {
     case profile
     case license
     case debug
+    /// `/app/extensions/install/[...url]`: a route that is never shown: it opens the install prompt and redirects
+    /// (307) to `/`, which is Home (`Router` does it)
+    case extensionInstall(url: String)
     case anime(id: Int)
     case animeThread(animeID: Int, threadID: Int)
     case player
@@ -114,6 +123,8 @@ enum Route: Hashable {
             return "/app/license"
         case .debug:
             return "/app/debug"
+        case .extensionInstall(let url):
+            return "/app/extensions/install/\(url)"
         case .anime(let id):
             return "/app/anime/\(id)"
         case .animeThread(let animeID, let threadID):
@@ -139,7 +150,7 @@ enum Route: Hashable {
             return 5
         case .settings, .profile:
             return 6
-        case .anime, .animeThread, .player, .license, .debug:
+        case .anime, .animeThread, .player, .license, .debug, .extensionInstall:
             return nil
         }
     }
@@ -149,7 +160,7 @@ enum Route: Hashable {
         switch self {
         case .home, .search, .schedule, .w2g, .chat, .client, .settings, .profile:
             return true
-        case .anime, .animeThread, .player, .license, .debug:
+        case .anime, .animeThread, .player, .license, .debug, .extensionInstall:
             return false
         }
     }
@@ -177,6 +188,12 @@ enum Route: Hashable {
 
     init?(path rawPath: String) {
         var path = rawPath
+        // the search of the address, which only the install route reads
+        var search = ""
+        if let mark = path.firstIndex(of: "?") {
+            search = String(path[path.index(after: mark)...])
+            path = String(path[..<mark])
+        }
         if path.hasPrefix("/#") { path.removeFirst(2) }
         if path.hasPrefix("#") { path.removeFirst() }
         if !path.hasPrefix("/") { path = "/" + path }
@@ -216,6 +233,12 @@ enum Route: Hashable {
             self = .license
         case "debug":
             self = .debug
+        case "extensions":
+            guard parts.count > 2, parts[2] == "install" else { return nil }
+            // `url.searchParams.get('url') ?? params.url ?? ''`: the squeezed slashes of a `[...url]` that
+            // was written as a path are put right by `sanitizeExtensionURL`
+            let searched = URLComponents(string: "?" + search)?.queryItems?.first { $0.name == "url" }?.value
+            self = .extensionInstall(url: searched ?? parts.dropFirst(3).joined(separator: "/"))
         default:
             return nil
         }

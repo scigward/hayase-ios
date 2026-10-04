@@ -107,6 +107,7 @@ enum DeepLink {
     private static func perform(_ target: Target) {
         switch target {
         case .extensions(let url):
+            // `native.navigate({ target: 'extensions', value })` of routes/+layout.svelte: the prompt, where the user is
             ExtensionInstallPrompt.show(url: url)
         case .schedule:
             Router.shared.navigate(.schedule)

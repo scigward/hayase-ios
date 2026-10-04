@@ -74,7 +74,15 @@ final class Router {
         notify(route, kind: .replace)
     }
 
+    /// `load` of a route that does not stay: the install link gives the prompt its address and goes on to `/` (Home)
+    private func redirected(_ route: Route) -> Route {
+        guard case .extensionInstall(let url) = route else { return route }
+        Task { @MainActor in ExtensionInstallPrompt.show(url: url) }
+        return .home
+    }
+
     func navigate(_ route: Route, hostTabIndex: Int? = nil, noScroll: Bool = false) {
+        let route = redirected(route)
         pendingAnimeNavigationID = nil
         pendingThreadNavigationID = nil
         if route == currentRoute {
@@ -86,6 +94,7 @@ final class Router {
     }
 
     func replace(_ route: Route, hostTabIndex: Int? = nil, noScroll: Bool = false) {
+        let route = redirected(route)
         pendingAnimeNavigationID = nil
         pendingThreadNavigationID = nil
         history.replace(route, hostTabIndex: resolvedHostTabIndex(for: route, explicit: hostTabIndex))
