@@ -739,6 +739,13 @@ final class MPVWrapper {
                 getProperty(handle: handle, name: "track-list/\(i)/selected", format: MPV_FORMAT_FLAG, value: &selected)
                 track["selected"] = selected != 0
 
+                var forced: Int32 = 0
+                getProperty(handle: handle, name: "track-list/\(i)/forced", format: MPV_FORMAT_FLAG, value: &forced)
+                track["forced"] = forced != 0
+                var isDefault: Int32 = 0
+                getProperty(handle: handle, name: "track-list/\(i)/default", format: MPV_FORMAT_FLAG, value: &isDefault)
+                track["default"] = isDefault != 0
+
                 Logger.shared.log("getSubtitleTracks: found sub track id=\(trackId), title=\(track["title"] ?? "none"), lang=\(track["lang"] ?? "none")", type: "Info")
                 tracks.append(track)
             }

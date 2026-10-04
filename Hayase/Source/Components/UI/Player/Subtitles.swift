@@ -239,3 +239,93 @@ final class Subtitles {
         return nil
     }
 }
+
+// MARK: - Which track is selected
+
+/// What the selection of tracks looks at of a track: `SubtitleTrack` of the interface
+struct SubtitleTrackMeta: Equatable {
+    var number: String
+    var language: String?
+    var name: String?
+    var forced: Bool
+    var isDefault: Bool
+}
+
+extension Subtitles {
+    /// `lastSelectedTrack`: the track chosen last, of any episode, which the next episode takes again
+    static var lastSelectedTrack: SubtitleTrackMeta?
+
+    /// The track that is selected when the tracks of an episode are known (the `native.tracks(...).then` of the
+    /// constructor): nothing when the subtitle language is none; the only track there is; the track the last
+    /// episode had (same language and name, then number); else among the tracks of the wanted language, or of English,
+    /// the one that `selectDesired` finds; else the first. The number of the track, or nil for none.
+    static func preferredTrack(in tracks: [SubtitleTrackMeta], audioLanguage: String, subtitleLanguage: String,
+                               last: SubtitleTrackMeta? = Subtitles.lastSelectedTrack) -> String? {
+        if subtitleLanguage.isEmpty { return nil }   // if lang set to none dont autoselect
+        guard let first = tracks.first else { return nil }
+        if tracks.count == 1 { return first.number }
+
+        func selectDesired(_ filtered: [SubtitleTrackMeta]) -> String {
+            if filtered.count == 1 { return filtered[0].number }
+            // forced for the curent audio lang
+            return (filtered.first { sameLanguage($0.language, audioLanguage) && $0.forced }
+                // non-forced for not the current audio lang
+                ?? filtered.first { !sameLanguage($0.language, audioLanguage) && !$0.forced }
+                // default
+                ?? filtered.first { $0.isDefault }
+                ?? filtered[0]).number
+        }
+
+        if let last {
+            let matchesLast = tracks.filter { sameLanguage($0.language, last.language, whenBothMissing: true) && $0.name == last.name }
+            if !matchesLast.isEmpty {
+                if matchesLast.count == 1 { return matchesLast[0].number }
+                if let sameNumber = matchesLast.first(where: { $0.number == last.number }) { return sameNumber.number }
+                return selectDesired(matchesLast)
+            }
+        }
+
+        let wantedLanguages = tracks.filter { sameLanguage($0.language ?? "eng", subtitleLanguage) }
+        if !wantedLanguages.isEmpty { return selectDesired(wantedLanguages) }
+
+        let englishFallback = tracks.filter { sameLanguage($0.language ?? "eng", "eng") }
+        if !englishFallback.isEmpty { return selectDesired(englishFallback) }
+
+        return first.number
+    }
+
+    /// `checkAudio`: of several audio tracks, the one in the language of the settings, else the Japanese one; nil when
+    /// there is no choice to make (one track, or none that is wanted)
+    static func preferredAudioTrack(in tracks: [(id: Int, language: String?)], audioLanguage: String) -> Int? {
+        guard tracks.count > 1 else { return nil }
+        if let preferred = tracks.first(where: { sameLanguage($0.language, audioLanguage) }) { return preferred.id }
+        return tracks.first(where: { sameLanguage($0.language, "jpn") })?.id
+    }
+
+    /// `language === other`, for the codes of the settings (ISO 639-2) and the ones of a file, which can be ISO 639-1
+    /// as well. A track with no language is none of them.
+    static func sameLanguage(_ track: String?, _ other: String?, whenBothMissing: Bool = false) -> Bool {
+        guard let track, !track.isEmpty, let other, !other.isEmpty else {
+            return whenBothMissing && (track ?? "").isEmpty && (other ?? "").isEmpty
+        }
+        if track == other { return true }
+        return iso639to1[track] ?? track == iso639to1[other] ?? other
+    }
+
+    /// ISO 639-2/B → ISO 639-1 mapping for languages supported in Settings → Player → Language Settings.
+    /// Includes both bibliographic (639-2/B) and terminology (639-2/T) variants
+    /// where they differ (e.g. "idn"/"ind" both → "id").
+    private static let iso639to1: [String: String] = [
+        "eng": "en",  "jpn": "ja",  "chi": "zh",  "zho": "zh",
+        "por": "pt",  "spa": "es",  "ger": "de",  "deu": "de",
+        "pol": "pl",  "cze": "cs",  "ces": "cs",  "dan": "da",
+        "gre": "el",  "ell": "el",  "fin": "fi",  "fre": "fr",
+        "fra": "fr",  "hun": "hu",  "ita": "it",  "kor": "ko",
+        "dut": "nl",  "nld": "nl",  "nor": "no",  "rum": "ro",
+        "ron": "ro",  "rus": "ru",  "slo": "sk",  "slk": "sk",
+        "swe": "sv",  "ara": "ar",  "idn": "id",  "ind": "id",
+        "heb": "he",  "vie": "vi",  "tha": "th",  "tur": "tr",
+        "hin": "hi",  "ben": "bn",  "per": "fa",  "fas": "fa",
+        "mal": "ml",
+    ]
+}

@@ -15,6 +15,9 @@ struct MPVTrack {
     let title: String?
     let lang: String?
     let isSelected: Bool
+    /// `forced` and `default` of the track, which the choice of the subtitle track looks at
+    var isForced = false
+    var isDefault = false
 
     var displayName: String {
         if let t = title, !t.isEmpty { return t }

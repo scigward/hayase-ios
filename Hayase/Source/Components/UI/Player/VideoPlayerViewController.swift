@@ -967,7 +967,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
             // JS Array.at supports negative indices; beyond either end selects OFF.
             let index = next < 0 ? subtitles.count + next : next
             let track = subtitles.indices.contains(index) ? subtitles[index] : nil
-            surface.mpv.setSubtitleTrack(track?.id ?? -1)
+            selectSubtitleTrack(track?.id ?? -1, in: subtitles)
             showPlayerTextAnimation(track?.title ?? track?.lang ?? "Off")
         case "fit_width":
             surface.displayLayer.videoGravity = surface.displayLayer.videoGravity == .resizeAspect ? .resizeAspectFill : .resizeAspect
@@ -3036,7 +3036,9 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
                         type: type,
                         title: dict["title"] as? String,
                         lang: dict["lang"] as? String,
-                        isSelected: dict["selected"] as? Bool ?? false)
+                        isSelected: dict["selected"] as? Bool ?? false,
+                        isForced: dict["forced"] as? Bool ?? false,
+                        isDefault: dict["default"] as? Bool ?? false)
     }
 
     private func readTracks(from renderer: MPVWrapper, includeMkvLanguages: Bool = false) -> [MPVTrack] {
@@ -3072,7 +3074,9 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
                             type: fresh.type,
                             title: fresh.title ?? cached.title,
                             lang: fresh.lang ?? cached.lang,
-                            isSelected: fresh.isSelected)
+                            isSelected: fresh.isSelected,
+                            isForced: fresh.isForced,
+                            isDefault: fresh.isDefault)
         }
     }
 
@@ -3162,7 +3166,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         }
 
         optionsVC.onSelectSubtitleTrack = { [weak self] trackId in
-            self?.surface.mpv.setSubtitleTrack(trackId)
+            self?.selectSubtitleTrack(trackId)
         }
 
         optionsVC.onSetSpeed = { [weak self] rate in
@@ -3437,73 +3441,52 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
                                     type: track.type,
                                     title: track.title,
                                     lang: language,
-                                    isSelected: track.isSelected)
+                                    isSelected: track.isSelected,
+                                    isForced: track.isForced,
+                                    isDefault: track.isDefault)
                 }
                 self.applyPreferredLanguages(renderer: renderer, tracks: self.tracks)
             }
         }
     }
 
-    /// Selects audio and subtitle tracks whose language matches the user's
-    /// preferred languages (Settings → Player → Language Settings).
-    /// Language codes in preferences are ISO 639-2/B (e.g. "eng", "jpn");
-    /// track codes from MPV may be 2-letter ISO 639-1 ("en", "ja") or
-    /// 3-letter. We normalise both sides via `Locale` for reliable matching.
+    /// Selects the audio and subtitle tracks that the language settings, the forced and default flags and the
+    /// track of the last episode ask for (`checkAudio` of player.svelte and `Subtitles` of subtitles.ts).
     private func applyPreferredLanguages(renderer: MPVWrapper, tracks: [MPVTrack]) {
-        let prefAudio = Settings.audioLanguage
-        let prefSub   = Settings.subtitleLanguage
-
-        // Audio — pick first track whose language matches the preference
-        if !prefAudio.isEmpty {
-            let audioTracks = tracks.filter { $0.type == "audio" }
-            if let match = audioTracks.first(where: { languageCodesMatch($0.lang, prefAudio) }),
-               !match.isSelected {
-                renderer.setAudioTrack(match.id)
-            }
+        // `checkAudio` of player.svelte: of several audio tracks the one in the language of the settings, else the Japanese one
+        let audio = tracks.filter { $0.type == "audio" }.map { (id: $0.id, language: $0.lang) }
+        if let id = Subtitles.preferredAudioTrack(in: audio, audioLanguage: Settings.audioLanguage) {
+            renderer.setAudioTrack(id)
         }
 
-        // Subtitle — pick first track whose language matches; empty pref = OFF
-        if prefSub.isEmpty {
+        // the tracks of `Subtitles`: none when the subtitle language is none, else the one the settings and the
+        // last episode ask for
+        let subtitleTracks = tracks.filter { $0.type == "sub" }
+        let metas = subtitleTracks.map {
+            SubtitleTrackMeta(number: String($0.id), language: $0.lang, name: $0.title, forced: $0.isForced, isDefault: $0.isDefault)
+        }
+        if let number = Subtitles.preferredTrack(in: metas, audioLanguage: Settings.audioLanguage,
+                                                 subtitleLanguage: Settings.subtitleLanguage),
+           let id = Int(number), let track = subtitleTracks.first(where: { $0.id == id }) {
+            if track.isSelected {
+                Subtitles.lastSelectedTrack = metas.first { $0.number == number }
+            } else {
+                selectSubtitleTrack(id, in: subtitleTracks)
+            }
+        } else if Settings.subtitleLanguage.isEmpty, subtitleTracks.contains(where: { $0.isSelected }) {
             // "None" selected in settings → disable subtitles
-            let hasSub = tracks.contains { $0.type == "sub" && $0.isSelected }
-            if hasSub { renderer.disableSubtitles() }
-        } else {
-            let subTracks = tracks.filter { $0.type == "sub" }
-            if let match = subTracks.first(where: { languageCodesMatch($0.lang, prefSub) }),
-               !match.isSelected {
-                renderer.setSubtitleTrack(match.id)
-            }
+            renderer.disableSubtitles()
         }
     }
 
-    /// Returns `true` when two language identifiers refer to the same language.
-    /// Handles mixed ISO 639-1 / 639-2 codes (e.g. "en" vs "eng", "ja" vs "jpn").
-    private func languageCodesMatch(_ trackLang: String?, _ prefLang: String) -> Bool {
-        guard let trackLang = trackLang, !trackLang.isEmpty else { return false }
-        if trackLang == prefLang { return true }
-        // Normalise both to ISO 639-1 (2-letter) for comparison
-        let trackNorm = Self.iso639to1[trackLang] ?? trackLang
-        let prefNorm  = Self.iso639to1[prefLang]  ?? prefLang
-        return trackNorm == prefNorm
+    /// `selectCaptions`: the track is selected, and it is the one that the next episode looks for
+    private func selectSubtitleTrack(_ id: Int, in tracks: [MPVTrack]? = nil) {
+        surface.mpv.setSubtitleTrack(id)
+        guard id >= 0,
+              let track = (tracks ?? self.tracks).first(where: { $0.type == "sub" && $0.id == id }) else { return }
+        Subtitles.lastSelectedTrack = SubtitleTrackMeta(number: String(id), language: track.lang, name: track.title,
+                                                        forced: track.isForced, isDefault: track.isDefault)
     }
-
-    /// ISO 639-2/B → ISO 639-1 mapping for languages supported in
-    /// Settings → Player → Language Settings.
-    /// Includes both bibliographic (639-2/B) and terminology (639-2/T) variants
-    /// where they differ (e.g. "idn"/"ind" both → "id").
-    private static let iso639to1: [String: String] = [
-        "eng": "en",  "jpn": "ja",  "chi": "zh",  "zho": "zh",
-        "por": "pt",  "spa": "es",  "ger": "de",  "deu": "de",
-        "pol": "pl",  "cze": "cs",  "ces": "cs",  "dan": "da",
-        "gre": "el",  "ell": "el",  "fin": "fi",  "fre": "fr",
-        "fra": "fr",  "hun": "hu",  "ita": "it",  "kor": "ko",
-        "dut": "nl",  "nld": "nl",  "nor": "no",  "rum": "ro",
-        "ron": "ro",  "rus": "ru",  "slo": "sk",  "slk": "sk",
-        "swe": "sv",  "ara": "ar",  "idn": "id",  "ind": "id",
-        "heb": "he",  "vie": "vi",  "tha": "th",  "tur": "tr",
-        "hin": "hi",  "ben": "bn",  "per": "fa",  "fas": "fa",
-        "mal": "ml",
-    ]
 
     func renderer(_ renderer: MPVWrapper, didSelectAudioOutput audioOutput: String) { }
 
