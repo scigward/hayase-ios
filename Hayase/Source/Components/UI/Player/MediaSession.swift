@@ -14,6 +14,7 @@
 //  from the player itself.
 //
 
+import AVFoundation
 import MediaPlayer
 import UIKit
 
@@ -56,6 +57,7 @@ final class MediaSession {
     /// `native.setMediaSession({ title, description, image }, mediaId, duration)`
     func setMediaSession(owner: AnyObject, title: String, description: String, imageURL: String?, duration: Double) {
         self.owner = owner
+        activateAudioSession()
         installCommandsIfNeeded()
         info = [
             MPMediaItemPropertyTitle: title,
@@ -125,6 +127,17 @@ final class MediaSession {
         updateCommands()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
+        UIApplication.shared.endReceivingRemoteControlEvents()
+    }
+
+    /// The lock screen and the remote controls belong to the app that has an active playback session while it
+    /// plays. The session that the app made when it opened can have been ended since (an interruption, the audio
+    /// output closing when a file ended), so it is made active again for each episode.
+    private func activateAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .moviePlayback)
+        try? session.setActive(true)
+        UIApplication.shared.beginReceivingRemoteControlEvents()
     }
 
     // MARK: - Lock screen
