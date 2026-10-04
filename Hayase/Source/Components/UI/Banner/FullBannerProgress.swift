@@ -74,6 +74,7 @@ final class FullBannerProgressView: UIView, CAAnimationDelegate {
             let slot = ProgressSlot()
             slot.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(slotTapped(_:))))
             slot.tag = index
+            slot.onDPadClick = { [weak self] in self?.selectSlot(index) }
             stack.addArrangedSubview(slot)
             return slot
         }
@@ -127,7 +128,12 @@ final class FullBannerProgressView: UIView, CAAnimationDelegate {
     }
 
     @objc private func slotTapped(_ recognizer: UITapGestureRecognizer) {
-        guard let index = recognizer.view?.tag, index != activeIndex else { return }
+        guard let index = recognizer.view?.tag else { return }
+        selectSlot(index)
+    }
+
+    private func selectSlot(_ index: Int) {
+        guard index != activeIndex else { return }
         onSelect?(index)
     }
 

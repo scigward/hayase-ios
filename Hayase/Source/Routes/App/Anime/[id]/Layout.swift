@@ -329,7 +329,7 @@ final class ChipRowScrollView: UIScrollView {
 
 // MARK: - AnimeTagChipButton
 
-final class AnimeTagChipButton: UIButton {
+final class AnimeTagChipButton: UIButton, ActiveElementObserver {
     /// A tag, whose chip is dashed, and not a genre.
     var isTagChip = false
     var dashedBorder = false {
@@ -366,7 +366,7 @@ final class AnimeTagChipButton: UIButton {
     }
 
     private func updateSelectState() {
-        let selected = isHighlighted || isFocused || isPointerOver
+        let selected = isHighlighted || isActiveElement || isPointerOver
         guard selected != appliedSelected else { return }
         appliedSelected = selected
         applySelectColors(animated: true)
@@ -427,6 +427,10 @@ final class AnimeTagChipButton: UIButton {
 
     override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
+        activeElementDidChange()
+    }
+
+    func activeElementDidChange() {
         updateSpoilerRendering()
         updateSelectState()
     }
@@ -486,7 +490,7 @@ final class AnimeTagChipButton: UIButton {
         }
         // Tailwind select = hover, focus-visible, active. Blur only the text,
         // never the button's background or dashed border.
-        let revealed = isHighlighted || isFocused || isPointerOverTitle
+        let revealed = isHighlighted || isActiveElement || isPointerOverTitle
         let shouldAnimate = lastRevealed != nil && lastRevealed != revealed
             && window != nil && !UIAccessibility.isReduceMotionEnabled
         titleLabel?.alpha = 0

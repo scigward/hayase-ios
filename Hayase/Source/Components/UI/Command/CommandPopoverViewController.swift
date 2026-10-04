@@ -86,6 +86,22 @@ class CommandPopoverViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupViews()
+        // `{#if $inputType === 'dpad'}`: a list that opens while the arrow keys are the input has the Close item
+        isKeyboardNavigating = Navigate.inputType == .dpad && !isSelect
+        NotificationCenter.default.addObserver(self, selector: #selector(inputTypeChanged),
+                                               name: Navigate.inputTypeDidChange, object: nil)
+    }
+
+    /// The list is drawn again after the key that made it `dpad` has been handled, as the DOM is
+    @objc private func inputTypeChanged() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if Navigate.inputType == .dpad {
+                if !self.isSelect { self.isKeyboardNavigating = true }
+            } else {
+                self.endKeyboardNavigation()
+            }
+        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -164,6 +180,7 @@ class CommandPopoverViewController: UIViewController {
     }
 
     private func moveKeyboardFocus(by delta: Int) {
+        Navigate.inputType = .dpad   // `navigate` of navigate.ts, which the list is given as `onKeydown`
         let order = keyboardOrder()
         guard !order.isEmpty else { return }
         // a select nothing is chosen in has no focus yet: the arrow goes to its first or last item

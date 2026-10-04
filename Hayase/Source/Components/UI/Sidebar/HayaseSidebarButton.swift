@@ -14,7 +14,7 @@ import UIKit
 /// A sidebar button: the `ghost` Button that becomes `default` (with the crossfading pill) while
 /// its route is open, and plays its animated icon (`animated-icon`) whenever it is hovered, focused
 /// or pressed. `route` is nil for the menu button of the narrow layout.
-final class HayaseSidebarButton: UIButton {
+final class HayaseSidebarButton: UIButton, ActiveElementObserver {
     enum SidebarSize {
         case desktop
         case mobile
@@ -244,8 +244,12 @@ final class HayaseSidebarButton: UIButton {
         updateSelectState()
     }
 
+    func activeElementDidChange() {
+        updateSelectState()
+    }
+
     private func updateSelectState() {
-        let selected = isEnabled && (isHighlighted || isPointerOver || isFocused)
+        let selected = isEnabled && (isHighlighted || isPointerOver || isActiveElement)
         guard selected != isSelectedState else { return }
         isSelectedState = selected
         applyState(animated: true)

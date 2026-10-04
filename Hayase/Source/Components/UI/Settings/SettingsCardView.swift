@@ -242,6 +242,13 @@ final class SettingsSliderControl: UIControl {
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         bounds.insetBy(dx: 0, dy: -14).contains(point)
     }
+    /// the arrows of a slider that has the focus
+    override var keyCommands: [UIKeyCommand]? {
+        [UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(decrementKey)),
+         UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(incrementKey))]
+    }
+    @objc private func decrementKey() { accessibilityDecrement() }
+    @objc private func incrementKey() { accessibilityIncrement() }
     override func accessibilityIncrement() { setValue(value + step); sendActions(for: .editingDidEnd) }
     override func accessibilityDecrement() { setValue(value - step); sendActions(for: .editingDidEnd) }
     private func update(_ touch: UITouch) {

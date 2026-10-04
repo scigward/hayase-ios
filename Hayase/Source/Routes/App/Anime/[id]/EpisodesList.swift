@@ -383,6 +383,7 @@ final class EpisodeCardView: SelectableCardView {
         tap.cancelsTouchesInView = false
         tap.delegate = self
         addGestureRecognizer(tap)
+        onDPadClick = { [weak self] in self?.cardTapped() }
     }
 
     @objc private func cardTapped() {

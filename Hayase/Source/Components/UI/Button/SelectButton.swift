@@ -10,7 +10,7 @@ import UIKit
 /// A button that restyles while selected: hover, focus-visible or active, so while touched or
 /// under an iPad pointer. Colours change with `transition-colors` (150ms). Icon buttons can
 /// also play their animated icon (`animated-icon`) each time they become selected.
-class SelectButton: UIButton {
+class SelectButton: UIButton, ActiveElementObserver {
     /// The animated icons of `icons/animated`, which run while the button is selected.
     enum IconAnimation {
         case heartBeat
@@ -223,9 +223,13 @@ class SelectButton: UIButton {
         updateSelectState()
     }
 
+    func activeElementDidChange() {
+        updateSelectState()
+    }
+
     private func updateSelectState() {
         // disabled:pointer-events-none
-        let selected = (isEnabled || selectsWhenDisabled) && (isHighlighted || isPointerOver)
+        let selected = (isEnabled || selectsWhenDisabled) && (isHighlighted || isPointerOver || isActiveElement)
         guard selected != appliedSelected else { return }
         appliedSelected = selected
         UIView.transition(with: self, duration: 0.15,

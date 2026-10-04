@@ -23,6 +23,24 @@ private final class SegmentedSeekBar: UIControl {
     }
     private var initialSeekOffset: CGFloat = 0
     var onHover: ((CGFloat?) -> Void)?
+
+    /// `seekBarKey`: the keys of the bar while it is the focused element
+    enum Key {
+        case rewind
+        case forward
+        case playPause
+    }
+    var onKey: ((Key) -> Void)?
+
+    override var keyCommands: [UIKeyCommand]? {
+        [UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(rewindKey)),
+         UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(forwardKey)),
+         UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(playPauseKey))]
+    }
+
+    @objc private func rewindKey() { onKey?(.rewind) }
+    @objc private func forwardKey() { onKey?(.forward) }
+    @objc private func playPauseKey() { onKey?(.playPause) }
     private var hoverValue: CGFloat = 0
 
     /// True while the user is touching/dragging the bar.
@@ -746,6 +764,8 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         }
 
         observeAppVisibility()
+        NotificationCenter.default.addObserver(self, selector: #selector(elementDidNavigate(_:)),
+                                               name: Navigate.didNavigate, object: nil)
 
         loadCurrentVideo()
         scheduleHide()
@@ -886,7 +906,12 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     override var keyCommands: [UIKeyCommand]? {
         guard !PlayerKeyBindings.isEditing(in: viewIfLoaded), !isMinimizing,
               !(MiniPlayerManager.shared.isActive && MiniPlayerManager.shared.activePlayer === self) else { return nil }
-        return PlayerKeyBindings.commands(action: #selector(runPlayerKeyCommand(_:)))
+        let commands = PlayerKeyBindings.commands(action: #selector(runPlayerKeyCommand(_:)))
+        // `if ($inputType === 'dpad') return` of the four arrow binds: the arrows move the focus then
+        guard Navigate.inputType == .dpad else { return commands }
+        let arrows = [UIKeyCommand.inputLeftArrow, UIKeyCommand.inputRightArrow,
+                      UIKeyCommand.inputUpArrow, UIKeyCommand.inputDownArrow]
+        return commands.filter { !arrows.contains($0.input ?? "") }
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -895,6 +920,12 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     @objc private func runPlayerKeyCommand(_ command: UIKeyCommand) {
         guard let binding = PlayerKeyBindings.binding(for: command) else { return }
         runPlayerKeybind(binding.id, shift: command.modifierFlags.contains(.shift))
+    }
+
+    /// `on:navigate={() => resetMove(2000)}`: the controls are shown for the element that the focus moved to
+    @objc private func elementDidNavigate(_ notification: Notification) {
+        guard let element = notification.object as? UIView, element.isDescendant(of: view) else { return }
+        setControls(visible: true)
     }
 
     private func runPlayerKeybind(_ id: String, shift: Bool) {
@@ -1044,6 +1075,13 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         seekPreview.isHidden = true
         overlay.addSubview(seekPreview)
         seekBar.onHover = { [weak self] fraction in self?.showSeekPreview(at: fraction) }
+        seekBar.onKey = { [weak self] key in
+            switch key {
+            case .rewind: self?.performDoubleTapSeek(forward: false)
+            case .forward: self?.performDoubleTapSeek(forward: true)
+            case .playPause: self?.playPauseTapped()
+            }
+        }
     }
 
     /// Hayase downloadstats.svelte — floating HUD at top center showing

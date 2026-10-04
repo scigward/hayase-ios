@@ -14,7 +14,7 @@
 
 import UIKit
 
-final class SelectTriggerView: UIControl {
+final class SelectTriggerView: UIControl, ActiveElementObserver {
     private var isPointerOver = false
     private var appliedSelected = false
     private let valueLabel = UILabel()
@@ -96,9 +96,13 @@ final class SelectTriggerView: UIControl {
         updateSelectState()
     }
 
+    func activeElementDidChange() {
+        updateSelectState()
+    }
+
     /// `select:bg-accent`: hover, focus-visible or active. The trigger has no `transition-colors`.
     private func updateSelectState() {
-        let selected = isEnabled && (isHighlighted || isPointerOver)
+        let selected = isEnabled && (isHighlighted || isPointerOver || isActiveElement)
         guard selected != appliedSelected else { return }
         appliedSelected = selected
         backgroundColor = selected ? UIColor.HayaseTheme.accent : UIColor.HayaseTheme.muted

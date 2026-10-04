@@ -11,7 +11,7 @@ import UIKit
 /// The interface's card `select:` state, shared by the anime page's episode and
 /// thread cards. tailwind.config.ts defines `select` as hover, focus-visible or
 /// active: a touch is active while it is down, and an iPad pointer is hover.
-class SelectableCardView: UIView, UIGestureRecognizerDelegate {
+class SelectableCardView: UIView, UIGestureRecognizerDelegate, ActiveElementObserver {
     private let restingBackground: UIColor
     private let selectedBackground: UIColor
     private var isPressed = false
@@ -78,13 +78,17 @@ class SelectableCardView: UIView, UIGestureRecognizerDelegate {
         updateSelectState(animated: true)
     }
 
+    func activeElementDidChange() {
+        updateSelectState(animated: true)
+    }
+
     @objc private func hoverChanged(_ recognizer: UIHoverGestureRecognizer) {
         isHovered = recognizer.state == .began || recognizer.state == .changed
         updateSelectState(animated: true)
     }
 
     private func updateSelectState(animated: Bool, force: Bool = false) {
-        let selected = isPressed || isHovered
+        let selected = isPressed || isHovered || isActiveElement
         guard force || selected != appliedSelected else { return }
         appliedSelected = selected
         // bg-accent is outside the transition list, so it switches immediately.

@@ -6,7 +6,7 @@ import UIKit
 /// focus:ring-2 focus:ring-offset-2`, no opacity of its own. sheet-content.svelte and the schedule
 /// drawer: the same with `opacity-70` and `hover:opacity-100` (`select:opacity-100`).
 /// app.css, for every button: `&:active { transition: all 0.1s ease-in-out; transform: scale(0.98) }`.
-final class HayaseCloseButton: UIButton {
+final class HayaseCloseButton: UIButton, ActiveElementObserver {
     enum Style { case dialog, sheet }
     private let style: Style
     private let ringOffsetLayer = CAShapeLayer()
@@ -91,6 +91,10 @@ final class HayaseCloseButton: UIButton {
         updateRing(animated: false)
     }
 
+    func activeElementDidChange() {
+        updateRing(animated: false)
+    }
+
     @objc private func hoverChanged(_ recognizer: UIHoverGestureRecognizer) {
         let hovered = recognizer.state == .began || recognizer.state == .changed
         guard isPointerHovered != hovered else { return }
@@ -127,7 +131,7 @@ final class HayaseCloseButton: UIButton {
 
     /// The ring comes in with the press, in the 0.1s of `:active`; it goes at once, when the focus does.
     private func updateRing(animated: Bool) {
-        let target: Float = isFocused || isPressFocused ? 1 : 0
+        let target: Float = isActiveElement || isPressFocused ? 1 : 0
         guard ringOffsetLayer.opacity != target else { return }
         CATransaction.begin()
         if animated && target == 1 && !UIAccessibility.isReduceMotionEnabled {

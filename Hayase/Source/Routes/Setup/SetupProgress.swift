@@ -109,6 +109,7 @@ final class SetupProgressView: UIView {
         badge.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(badgeTapped(_:))))
         badge.accessibilityTraits = .button
         badge.tag = route == .storage ? 1 : 2
+        badge.onDPadClick = { [weak self] in self?.onNavigate?(route) }
     }
 
     @objc private func badgeTapped(_ recognizer: UITapGestureRecognizer) {

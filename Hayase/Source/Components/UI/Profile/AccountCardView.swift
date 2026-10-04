@@ -64,6 +64,7 @@ final class HayaseAccountCardView: UIView {
         for profile in [avatarView, names] {
             profile.isUserInteractionEnabled = true
             profile.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openProfile)))
+            profile.onDPadClick = { [weak self] in self?.openProfile() }
         }
         headerStack.axis = .horizontal
         headerStack.alignment = .center
@@ -116,6 +117,7 @@ final class HayaseAccountCardView: UIView {
         syncToggle.addTarget(self, action: #selector(syncChanged), for: .valueChanged)
         syncLabel.isUserInteractionEnabled = true
         syncLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(toggleSync)))
+        syncLabel.onDPadClick = { [weak self] in self?.toggleSync() }
         NotificationCenter.default.addObserver(self, selector: #selector(trackerDidChange),
                                                name: TrackerAccountManager.didChange, object: nil)
     }

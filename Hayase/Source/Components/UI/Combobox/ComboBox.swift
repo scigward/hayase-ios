@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class ComboBox: UIControl {
+final class ComboBox: UIControl, ActiveElementObserver {
     var restingBackgroundColor: UIColor = UIColor.HayaseTheme.muted {
         didSet { if !appliedSelected { backgroundColor = restingBackgroundColor } }
     }
@@ -83,9 +83,13 @@ final class ComboBox: UIControl {
         updateSelectState()
     }
 
+    func activeElementDidChange() {
+        updateSelectState()
+    }
+
     /// select:bg-accent with `transition-colors`: 150ms.
     private func updateSelectState() {
-        let selected = isHighlighted || isPointerOver
+        let selected = isHighlighted || isPointerOver || isActiveElement
         guard selected != appliedSelected else { return }
         appliedSelected = selected
         UIView.animate(withDuration: 0.15, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {

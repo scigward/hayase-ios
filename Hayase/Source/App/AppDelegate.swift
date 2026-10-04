@@ -18,6 +18,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Hayase is `color-scheme: only dark` — enforce dark mode throughout the app
         window?.overrideUserInterfaceStyle = .dark
         UIScrollView.installInstantTouches()
+        if let window { Navigate.observePointer(in: window) }   // `inputType`
+        Gamepad.shared.start()
         AniListRefocus.shared.start()
         TrackerAggregator.start()
         AniListConnectionStatus.shared.start()

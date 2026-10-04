@@ -111,7 +111,7 @@ final class PeerFlagsCellContent: UIView {
 
 /// Tooltip.Trigger/Content from the interface; keep the lightweight hover
 /// label in the same window instead of presenting a native popover.
-private final class PeerFlagBadge: UIControl {
+private final class PeerFlagBadge: UIControl, ActiveElementObserver {
     private let tooltipText: String
     private var tooltip: UIView?
     private var pendingTooltip: DispatchWorkItem?
@@ -135,7 +135,11 @@ private final class PeerFlagBadge: UIControl {
     override func didUpdateFocus(in context: UIFocusUpdateContext,
                                  with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
-        isFocused ? showTooltip() : hideTooltip()
+        activeElementDidChange()
+    }
+
+    func activeElementDidChange() {
+        isActiveElement ? showTooltip() : hideTooltip()
     }
 
     @objc private func hover(_ gesture: UIHoverGestureRecognizer) {

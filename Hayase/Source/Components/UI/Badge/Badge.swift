@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class Badge: UIControl {
+final class Badge: UIControl, ActiveElementObserver {
     private let titleLabel = UILabel()
     private let closeIconView = UIImageView()
     private let stackView = UIStackView()
@@ -89,6 +89,10 @@ final class Badge: UIControl {
         }
     }
 
+    func activeElementDidChange() {
+        updateRevealState(animated: true)
+    }
+
     override var intrinsicContentSize: CGSize {
         let titleSize = titleLabel.intrinsicContentSize
         let closeWidth: CGFloat = shouldRevealCloseIcon ? 20 : 0
@@ -97,7 +101,7 @@ final class Badge: UIControl {
     }
 
     private var shouldRevealCloseIcon: Bool {
-        isHighlighted || isSelected || super.isFocused
+        isHighlighted || isSelected || isActiveElement
     }
 
     private func updateRevealState(animated: Bool) {

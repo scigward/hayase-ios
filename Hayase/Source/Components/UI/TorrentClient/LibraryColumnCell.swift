@@ -93,6 +93,7 @@ final class LibraryColumnCell: UITableViewCell {
         tap.cancelsTouchesInView = true
         tap.delegate = self
         contentView.addGestureRecognizer(tap)
+        onDPadClick = { [weak self] in self?.onOpen?() }
         contentView.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(rowHovered(_:))))
         dateStack.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(dateHovered(_:))))
         let dateHold = UILongPressGestureRecognizer(target: self, action: #selector(dateHeld(_:)))

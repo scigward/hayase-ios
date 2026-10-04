@@ -57,7 +57,7 @@ done it was checked against what the interface enables on iOS (`SUPPORTS.isIOS` 
 | MF-11 themes | Not done: kept out of scope as decided earlier. |
 | MF-12 debug ribbon | Done: `Components/UI/Menubar/Menubar.swift`. |
 | MF-13 licence and error pages | Done: the licence is a page (`Route.license`, text bundled in `Resources/License/LICENSE.txt`: the licence of the interface and of the third-party code in this app) and a failed anime or thread load shows the error page. `Route.debug` was added with it, so `debug` is a route too. |
-| MF-14 game controller | Not done: the interface sends key presses to the element in focus, and the app has no focus navigation for a controller to drive. |
+| MF-14 game controller | Done, not run on a device: `Modules/Gamepad.swift` mirrors `gamepad.ts` (A is Enter, B and Menu are Escape, the D-pad and the left stick are the arrows with the same repeat and stick thresholds; read each frame while the app is active), and `Modules/Navigation/Navigate.swift` mirrors `navigate.ts` (`inputType`, the spatial arrow navigation with its scoring and slow-down on repeat, focus that scrolls the element to the middle, Enter as a click, the `[data-input='dpad'] *:focus` tint). Where the app differs on purpose: a key goes up the responder chain and the first responder with a key command for it takes it (a DOM event reaches every listener unless one stops it); the focus is the app's own `activeElement`, since UIKit's focus engine is not moved by a controller; what counts as an element is decided by type (controls, editable text views, rows that the table or collection delegate selects, and views that opt in with `onDPadClick`, which is `use:click`), so the tap-gesture labels of the player, the terms links of the setup and the hover preview card are not elements; a touch or the pointer ends D-pad focus (a click on the page blurs it in the browser); a hardware keyboard's arrows still go only to the key commands that take them, as before, there being no window-level listener to fall back to. The player's arrows, the seek bar's keys, the Close item of the combobox and the controls that come back on `navigate` follow `$inputType` as the interface does. |
 
 ---
 
@@ -231,7 +231,7 @@ done it was checked against what the interface enables on iOS (`SUPPORTS.isIOS` 
 | `modules/watchProgress.ts` | `Modules/WatchProgressService.swift` | renamed |
 | `modules/{anilist,auth,extensions,irc,w2g,torrent,settings,anizip,animethemes,geoip}` | `Modules/{AniList,Auth,Extensions,IRC,W2G,Torrent,Settings,AniZip,AnimeThemes,GeoIP}` | same |
 | `lib/utils.ts` | none: helpers are spread over `AniListUtil`, `TorrentFormat`, private functions | see `DU-08` |
-| `modules/{navigate,idle,online,target,update,gamepad,chromecast,native}.ts` | `Modules/Navigation/*` (SvelteKit router stand-in), `HayaseOnlineBar`, none for the rest | partly absent |
+| `modules/{navigate,idle,online,target,update,gamepad,chromecast,native}.ts` | `Modules/Navigation/*` (SvelteKit router stand-in, and `Navigate.swift` for `navigate.ts`), `Modules/Gamepad.swift`, `HayaseOnlineBar`, none for the rest | partly absent |
 
 #### AR-01 — Seven interface player files are inside one 3,489-line Swift file · Medium · Confirmed
 `animations`, `castplayer`, `chapters`, `downloadstats`, `seekbar`, `subtitles` and the `mediahandler` logic live in `VideoPlayerViewController.swift` together with three private classes (`SegmentedSeekBar`, `InterfaceSpinnerView`, `InterfaceProgressButton`). The agent file names the player folder as the example of what must stay split.

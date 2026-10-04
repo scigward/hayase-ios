@@ -208,6 +208,7 @@ final class ThreadCardView: SelectableCardView {
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(cardTapped))
         addGestureRecognizer(tap)
+        onDPadClick = { [weak self] in self?.cardTapped() }
     }
 
     @objc private func cardTapped() {
