@@ -156,8 +156,9 @@ final class Subtitles {
         added += 1
 
         // "if (this.current.value === -1) selectCaptions(trackNumber)": a track is selected when none is
-        mpv.addExternalSubtitle(path: file.path, select: !mpv.hasSelectedSubtitleTrack(),
-                                title: trackName, language: language)
+        let select = !mpv.hasSelectedSubtitleTrack()
+        mpv.addExternalSubtitle(path: file.path, select: select, title: trackName, language: language)
+        if select { mpv.setSubtitleDefaultFont(Self.defaultFont(forLanguage: language)) }
     }
 
     // MARK: - Fonts
@@ -254,6 +255,23 @@ struct SubtitleTrackMeta: Equatable {
 extension Subtitles {
     /// `lastSelectedTrack`: the track chosen last, of any episode, which the next episode takes again
     static var lastSelectedTrack: SubtitleTrackMeta?
+
+    /// `LANGUAGE_OVERRIDES`: the font that a track in a CJK language falls back to. The fonts are the ones of the
+    /// interface (`AVAILABLE_FONTS`, which JASSUB is given the files of), in `Resources/Fonts` and registered with
+    /// the app, so that libass finds them by name.
+    private static let languageFonts: [String: String] = [
+        "jpn": "Noto Sans JP Bold",
+        "kor": "Noto Sans KR Bold",
+        "chi": "Noto Sans HK",
+        "ja": "Noto Sans JP Bold",
+        "ko": "Noto Sans KR Bold",
+        "zh": "Noto Sans HK",
+    ]
+
+    /// What `selectCaptions` gives `setDefaultFont`: the font of the language, else 'roboto medium'
+    static func defaultFont(forLanguage language: String?) -> String {
+        language.flatMap { languageFonts[$0] } ?? "roboto medium"
+    }
 
     /// The track that is selected when the tracks of an episode are known (the `native.tracks(...).then` of the
     /// constructor): nothing when the subtitle language is none; the only track there is; the track the last

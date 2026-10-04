@@ -3484,6 +3484,7 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         surface.mpv.setSubtitleTrack(id)
         guard id >= 0,
               let track = (tracks ?? self.tracks).first(where: { $0.type == "sub" && $0.id == id }) else { return }
+        surface.mpv.setSubtitleDefaultFont(Subtitles.defaultFont(forLanguage: track.lang))
         Subtitles.lastSelectedTrack = SubtitleTrackMeta(number: String(id), language: track.lang, name: track.title,
                                                         forced: track.isForced, isDefault: track.isDefault)
     }

@@ -80,6 +80,12 @@
 		<string>Nunito-Variable.ttf</string>
 		<string>GeistMono-Regular.ttf</string>
 		<string>Excalifont-Regular-subset.ttf</string>
+		<string>Roboto.ttf</string>
+		<string>GandhiSans-Bold.ttf</string>
+		<string>NotoSans-Bold.ttf</string>
+		<string>NotoSansJP.otf</string>
+		<string>NotoSansKR.otf</string>
+		<string>NotoSansHK.otf</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

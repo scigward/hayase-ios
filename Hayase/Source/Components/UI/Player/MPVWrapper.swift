@@ -230,6 +230,8 @@ final class MPVWrapper {
         guard selection != "none" else {
             set("sub-ass-override", "no")
             set("sub-ass-style-overrides", "")
+            // `defaultFont: STYLE_OVERRIDES[subtitleStyle].FontName` and `setDefaultFont`
+            set("sub-font", "Roboto Medium")
             return
         }
 
@@ -261,6 +263,13 @@ final class MPVWrapper {
         ].joined(separator: ",")
         set("sub-ass-override", "yes")
         set("sub-ass-style-overrides", overrides)
+        // `await this.jassub?.renderer.setDefaultFont(overrideStyle.FontName)`
+        set("sub-font", font)
+    }
+
+    /// `renderer.setDefaultFont(name)`: the font that libass falls back to for what the style's font does not have
+    func setSubtitleDefaultFont(_ name: String) {
+        setProperty(name: "sub-font", value: name)
     }
     
     func stop() {
