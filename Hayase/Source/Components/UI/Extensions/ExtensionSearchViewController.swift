@@ -1023,15 +1023,14 @@ final class ExtensionSearchViewController: UIViewController {
     }
 
     @objc private func decrementEpisode() {
-        let v = max(1, currentEpisode - 1)
+        let v = max(0, currentEpisode - 1)
         currentEpisode = v
         episodeField.text = "\(v)"
         triggerSearch()
     }
 
     @objc private func incrementEpisode() {
-        let max = animeItem?.episodes ?? 9999
-        let v = min(max, currentEpisode + 1)
+        let v = min(65536, currentEpisode + 1)
         currentEpisode = v
         episodeField.text = "\(v)"
         triggerSearch()
@@ -1039,7 +1038,7 @@ final class ExtensionSearchViewController: UIViewController {
 
     @objc private func episodeFieldDone() {
         episodeField.resignFirstResponder()
-        let v = max(1, Int(episodeField.text ?? "1") ?? 1)
+        let v = max(0, Int(episodeField.text ?? "") ?? currentEpisode)
         currentEpisode = v
         episodeField.text = "\(v)"
         triggerSearch()
@@ -1987,11 +1986,11 @@ final class TorrentResultCell: UITableViewCell {
         seedersLabel.textColor = result.seeders > 20 ? green600 : (result.seeders < 5 ? red600 : yellow600)
 
         // ── Size (web: fastPrettyBytes uses base-1000 SI units)
-        sizeLabel.text = result.size > 0 ? fastPrettyBytes(result.size) : ""
+        sizeLabel.text = result.size > 0 ? TorrentFormat.fastPrettyBytes(UInt64(result.size)) : ""
 
         // ── Date (web: since(new Date(result.date)) — relative time like "2 days ago")
         if let date = result.date {
-            dateLabel.text = sinceDate(date)
+            dateLabel.text = AniListUtil.since(date)
             dateLabel.isHidden = false
         } else {
             dateLabel.text = ""
@@ -2023,34 +2022,6 @@ final class TorrentResultCell: UITableViewCell {
             termsStack.addArrangedSubview(l)
         }
     }
-}
-
-// MARK: - Byte formatter (mirrors web fastPrettyBytes — base-1000 SI units)
-
-private func fastPrettyBytes(_ bytes: Int64) -> String {
-    let d = Double(bytes)
-    let units = [" B", " kB", " MB", " GB", " TB"]
-    if d.isNaN { return "0 B" }
-    if d < 1 { return "\(d) B" }
-    let exponent = min(Int(log(d) / log(1000)), units.count - 1)
-    let value = d / pow(1000, Double(exponent))
-    // Match web: Number(value.toFixed(1)) — drops trailing ".0"
-    let formatted = (value.truncatingRemainder(dividingBy: 1) == 0)
-        ? String(format: "%.0f", value)
-        : String(format: "%.1f", value)
-    return formatted + units[exponent]
-}
-
-// MARK: - Relative date (mirrors web since() from utils.ts)
-
-private let sharedRelativeDateFormatter: RelativeDateTimeFormatter = {
-    let f = RelativeDateTimeFormatter()
-    f.unitsStyle = .full
-    return f
-}()
-
-private func sinceDate(_ date: Date) -> String {
-    return sharedRelativeDateFormatter.localizedString(for: date, relativeTo: Date())
 }
 
 // MARK: - UIColor luminance helper (mirrors web text-contrast-filter)

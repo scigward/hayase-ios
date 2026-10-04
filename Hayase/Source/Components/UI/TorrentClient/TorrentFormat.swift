@@ -33,10 +33,13 @@ enum TorrentFormat {
         prettySI(bits, units: ["b", "kb", "Mb", "Gb", "Tb"])
     }
 
+    /// `fastPrettyBytes` and `fastPrettyBits` of utils.ts, whose exponent is `floor(log(num) / log(1000))`
     private static func prettySI(_ value: UInt64, units: [String]) -> String {
-        var amount = Double(value)
-        var index = 0
-        while amount >= 1000 && index < units.count - 1 { amount /= 1000; index += 1 }
+        // `if (num < 1) return num + ' B'`
+        guard value >= 1 else { return "0 " + units[0] }
+        let number = Double(value)
+        let index = min(Int((log(number) / log(1000)).rounded(.down)), units.count - 1)
+        let amount = number / pow(1000, Double(index))
         // interface Number(toFixed(1)) drops a trailing .0; do not localize decimals.
         let rounded = (amount * 10).rounded() / 10
         let text = String(format: rounded.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f" : "%.1f",
