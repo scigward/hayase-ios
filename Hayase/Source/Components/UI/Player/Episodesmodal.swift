@@ -763,6 +763,15 @@ extension VideoPlayerViewController {
         presentEpisodeListSheet()
     }
 
+    /// `hover:text-muted-foreground hover:underline`, for a pointer over the title or the episode line
+    @objc func interactiveLabelHovered(_ recognizer: UIHoverGestureRecognizer) {
+        guard let label = recognizer.view as? TextShadowLabel else { return }
+        let hovering = recognizer.state == .began || recognizer.state == .changed
+        label.underlinesText = hovering
+        label.textColor = hovering ? UIColor.HayaseTheme.mutedForeground
+            : (label === titleLabel ? .white : UIColor(red: 217 / 255, green: 217 / 255, blue: 217 / 255, alpha: 0.6))
+    }
+
     /// Touch equivalent of Tailwind's `hover:text-muted-foreground hover:underline` —
     /// a brief muted + underlined flash so the tap is acknowledged.
     func flashInteractiveLabel(_ label: TextShadowLabel) {

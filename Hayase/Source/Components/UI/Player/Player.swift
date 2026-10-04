@@ -845,6 +845,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         //          onclick={() => goto(`/#/app/anime/${mediaInfo.media.id}`)}>`
         titleLabel.isUserInteractionEnabled = true
         titleLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(titleTapped)))
+        titleLabel.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(interactiveLabelHovered(_:))))
         titleLabel.onDPadClick = { [weak self] in self?.titleTapped() }
         bottomBar.addSubview(titleLabel)
 
@@ -861,6 +862,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         // opens the episode list — `<Sheet.Trigger class='... hover:underline'>`.
         episodeLabel.isUserInteractionEnabled = true
         episodeLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(episodeLabelTapped)))
+        episodeLabel.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(interactiveLabelHovered(_:))))
         episodeLabel.onDPadClick = { [weak self] in self?.episodeLabelTapped() }
         bottomBar.addSubview(episodeLabel)
 
