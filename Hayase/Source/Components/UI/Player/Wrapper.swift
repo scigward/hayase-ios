@@ -800,7 +800,6 @@ final class MiniPlayerManager {
         guard !hash.isEmpty else { return }
 
         let source = torrentEntity?.torrentDownloadURL ?? ""
-        let anime = torrentEntity?.animes
         var state: [String: Any] = [
             "backend":       "webtorrent",
             "torrentHash":   hash,
@@ -813,12 +812,16 @@ final class MiniPlayerManager {
             "episodeNumber": player.episodeNumber,
             "totalEpisodes": player.totalEpisodes
         ]
-        // the media, which a session made again at launch has to be told: its id is what the backend keeps the
-        // library entry by, and its name is what the player shows
-        if let english = anime?.animeTitleEnglish { state["animeTitleEnglish"] = english }
-        if let romaji = anime?.animeTitleJapanese { state["animeTitleRomaji"] = romaji }
-        if let cover = anime?.animeImgL ?? anime?.animeImgM { state["animeCover"] = cover }
-        if let episodes = anime?.animeTotalEps?.intValue { state["animeEpisodes"] = episodes }
+        // `last-torrent` is `{ media, id, episode }`: the whole media is kept, since its id is what the backend keeps
+        // the library entry by and what the player shows of it comes from it
+        let media = player.videoService?.media
+            ?? Router.shared.cachedAnimeItem(for: player.anilistID)
+            ?? torrentEntity?.animes.map { AniListUtil.animeItem(from: $0) }
+        if let media, let data = try? JSONEncoder().encode(media) { state["media"] = data }
+        if let object = media?.extensionMediaJSON, JSONSerialization.isValidJSONObject(object),
+           let data = try? JSONSerialization.data(withJSONObject: object) {
+            state["mediaJSON"] = data
+        }
         UserDefaults.standard.set(state, forKey: Self.sessionStateKey)
     }
 
@@ -931,13 +934,9 @@ final class MiniPlayerManager {
         }
         // The session starts empty at launch, so the media is made again: without it the backend is told that
         // the torrent has no media (its library entry loses it) and the player names the episode by its file.
-        var savedItem: AnimeItem?
-        let english = state["animeTitleEnglish"] as? String
-        let romaji = state["animeTitleRomaji"] as? String
-        if english != nil || romaji != nil {
-            savedItem = AnimeItem(id: anilistID, titleEnglish: english, titleRomaji: romaji,
-                                  coverURL: state["animeCover"] as? String, score: nil, status: nil,
-                                  episodes: state["animeEpisodes"] as? Int, bannerURL: nil, genres: [], description: nil)
+        var savedItem = (state["media"] as? Data).flatMap { try? JSONDecoder().decode(AnimeItem.self, from: $0) }
+        if savedItem != nil, let data = state["mediaJSON"] as? Data {
+            savedItem?.extensionMediaJSON = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         }
         VideoService.linkAnime(mediaID: anilistID, to: torrentEntity, item: savedItem) { [weak self] in
             guard let self, let player = self.activePlayer else { return }
@@ -947,6 +946,7 @@ final class MiniPlayerManager {
         try? context.save()
 
         let videoService = VideoService(torrentEntity: torrentEntity, episode: episodeNumber)
+        videoService.media = savedItem
         pendingWebTorrentRestoreService = videoService
 
         pendingWebTorrentRestoreObserver = NotificationCenter.default.addObserver(

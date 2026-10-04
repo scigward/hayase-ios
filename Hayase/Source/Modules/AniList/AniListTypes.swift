@@ -95,6 +95,25 @@ extension AnimeItem {
     }
 }
 
+// MARK: - Keeping a media
+
+/// The whole media can be kept, as the interface keeps `last-torrent` (`{ media, id, episode }`) whole. The AniList
+/// object that extensions are given (`extensionMediaJSON`) is not part of it: it is a dictionary, and whoever keeps
+/// the media keeps it next to it.
+extension AnimeItem: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, titleEnglish, titleRomaji, titleNative, titleUserPreferred, coverURL, score, status, episodes
+        case bannerURL, genres, description, synonyms, year, startYear, startMonth, startDay, season, format
+        case duration, trailerYouTubeID, favourites, coverColor, coverMediumURL, malId, isFavourite, relations
+        case tags, isAdult, source, countryOfOrigin, studioNames, airedSchedule, notYetAiredSchedule, mediaListEntry
+    }
+}
+
+extension AnimeItem.AiringEpisode: Codable {}
+extension AnimeItem.MediaListEntry: Codable {}
+extension AnimeTag: Codable {}
+extension AnimeRelation: Codable {}
+
 // MARK: - AnimeTag
 
 struct AnimeTag {
