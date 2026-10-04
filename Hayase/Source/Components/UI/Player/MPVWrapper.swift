@@ -601,7 +601,7 @@ final class MPVWrapper {
             }
         case "current-ao":
             if let aoName = getStringProperty(handle: handle, name: name) {
-                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("[MPV] 🔊 Audio output selected: \(aoName)") }
+                if Settings.debugLevel == "*" { print("[MPV] 🔊 Audio output selected: \(aoName)") }
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.delegate?.renderer(self, didSelectAudioOutput: aoName)
@@ -1068,7 +1068,7 @@ final class MPVWrapper {
 final class Logger {
     static let shared = Logger()
     func log(_ message: String, type: String) {
-        let showLogger = UserDefaults.standard.bool(forKey: "pref_showLogger") || Settings.debugLevel == "*"
+        let showLogger = Settings.debugLevel == "*"
         if showLogger {
             print("[\(type)] \(message)")
         }

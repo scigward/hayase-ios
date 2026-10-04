@@ -17,10 +17,8 @@ import Foundation
 ///
 /// Scope is intentionally partial. Keys read from exactly one place — the
 /// `nzb*`/`torrentSpeed`/`dhtPort`/etc. family already owned solely by
-/// `TorrentBackendSettings`, or `pref_showLogger`, read identically as a
-/// plain `false`-defaulting flag across ~15 player files — have no drift risk
-/// today, so they're left as direct `UserDefaults` reads rather than migrated
-/// for migration's sake. `pref_searchQuality`'s read in
+/// `TorrentBackendSettings` — have no drift risk today, so they're left as
+/// direct `UserDefaults` reads rather than migrated for migration's sake. `pref_searchQuality`'s read in
 /// `ExtensionSearchViewController` is also left alone where it intentionally
 /// falls back to the in-context `currentResolution` rather than the global
 /// default; only its plain read/write elsewhere routes through here.

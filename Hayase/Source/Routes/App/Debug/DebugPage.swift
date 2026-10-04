@@ -8,9 +8,6 @@
 //  settings, the torrent and the media capabilities), the tables of the audio and video codecs that the device can
 //  decode, and the latest event of each kind that the window got. Every save also copies what it saves.
 //
-//  One card is not in the interface: "Streaming Logger", which turns on the logging that this app has to the console
-//  (`pref_showLogger`). It is kept for as long as nothing else turns it on.
-//
 
 import UIKit
 
@@ -196,10 +193,6 @@ final class HayaseDebugViewController: UIViewController {
         card("Settings", "Save current settings to a file, which can be useful for debugging issues or sharing your configuration with others.", saveSettings)
         card("Torrent Capabilities", "Save torrent capabilities of the device, which can be useful for debugging issues with torrenting. This includes information about supported protocols, encryption, and other torrent-related features.", saveTorrent)
         card("Media Capabilities", "Save media capabilities of the device, which can be useful for debugging issues with media playback. This includes information about supported codecs, DRM capabilities, and other media-related features.", saveMedia)
-        // not in the interface: see the header
-        card("Streaming Logger", "Configure the native streaming, torrent, and player logger.", button: "Configure") { [weak self] _ in
-            self?.configureStreamingLogger()
-        }
         return views
     }
 
@@ -297,24 +290,6 @@ final class HayaseDebugViewController: UIViewController {
             "audioMatrix": audioMatrix,
             "videoMatrix": results.video,
         ] as [String: Any], name: "hayase-media-capabilities", presenter: self, sourceView: source)
-    }
-
-    private func configureStreamingLogger() {
-        let enabled = UserDefaults.standard.bool(forKey: "pref_showLogger")
-        let alert = UIAlertController(title: "Streaming Logger",
-                                      message: enabled ? "Currently enabled" : "Currently disabled",
-                                      preferredStyle: .actionSheet)
-        for option in [("Enable", true), ("Disable", false)] {
-            alert.addAction(UIAlertAction(title: option.0, style: .default) { _ in
-                Settings.write(option.1, forKey: "pref_showLogger")
-            })
-        }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        if let popover = alert.popoverPresentationController {
-            popover.sourceView = view
-            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
-        }
-        present(alert, animated: true)
     }
 
     // MARK: - The tables
