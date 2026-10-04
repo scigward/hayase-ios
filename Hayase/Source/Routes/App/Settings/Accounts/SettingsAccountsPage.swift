@@ -1,7 +1,39 @@
-// Mirrors: src/routes/app/settings/accounts/+page.svelte
+//
+//  SettingsAccountsPage.swift
+//  Hayase
+//
+//  Mirrors: src/routes/app/settings/accounts/+page.svelte: the sections of the Accounts settings page.
+//
 
 import AuthenticationServices
+import Foundation
 import UIKit
+
+extension SettingsSectionCatalog {
+    static let accountsSections: [Section] = [
+        Section(header: "Account Settings", rows: [
+            Row(title: "AniList",
+                description: "Connect your AniList account for anime tracking, list sync, and metadata.",
+                kind: .account(.anilist)),
+            Row(title: "Kitsu",
+                description: "Connect your Kitsu account for anime tracking and list sync.",
+                kind: .account(.kitsu)),
+            Row(title: "MyAnimeList",
+                description: "Connect your MyAnimeList account for anime tracking and list sync.",
+                kind: .account(.mal)),
+            Row(title: "Simkl",
+                description: "Connect your Simkl account for anime tracking and list sync.",
+                kind: .account(.simkl)),
+            Row(title: "Local",
+                description: "Local-only tracking. Works offline.",
+                kind: .account(.local)),
+        ], tab: .accounts),
+    ]
+}
+
+// MARK: - AccountsPage
+
+// Mirrors: src/routes/app/settings/accounts/+page.svelte
 
 final class HayaseAccountCardView: UIView {
     private let headerView = UIView()

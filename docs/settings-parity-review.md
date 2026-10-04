@@ -76,9 +76,9 @@ All paths below are relative to `Hayase/Source/` unless otherwise stated.
 | App/UIColor+HayaseTheme.swift | Shared popover token |
 | Components/UI/Extensions/ExtensionsViewController.swift | Backward-compatible BadgeFlowView customization |
 | Components/UI/Profile/AccountCardCell.swift | Removed old monolithic table-cell implementation |
-| Components/UI/Profile/AccountsPage.swift | Account layout/state rendering |
-| Components/UI/Profile/AccountsPage.swift | Existing auth flows and Kitsu dialog |
-| Components/UI/Profile/AccountsPage.swift | Shared-control account dialogs |
+| Routes/App/Settings/Accounts/SettingsAccountsPage.swift | Account layout/state rendering |
+| Routes/App/Settings/Accounts/SettingsAccountsPage.swift | Existing auth flows and Kitsu dialog |
+| Routes/App/Settings/Accounts/SettingsAccountsPage.swift | Shared-control account dialogs |
 | Components/UI/Settings/SettingCard.swift | Reusable cards, typography, input/action/slider controls |
 | Components/UI/Settings/DialogContent.swift | Shared dialog and nonblocking message presentation |
 | Components/UI/Switch/Switch.swift | Source-sized accessible switch |
@@ -97,7 +97,7 @@ All paths below are relative to `Hayase/Source/` unless otherwise stated.
 | Routes/App/Settings/SettingsLayoutView.swift | Header, scroll region, navigation/support/footer |
 | Routes/App/Settings/SettingsPreviewGridView.swift | Subtitle and theme-preview tiles |
 | Routes/App/Settings/SettingsThemePreviewPalette.swift | Source theme-preview swatches |
-| Routes/App/Settings/ChangelogPage.swift | Responsive changelog/loading/error rendering |
+| Routes/App/Settings/Changelog/SettingsChangelogPage.swift | Responsive changelog/loading/error rendering |
 | Routes/App/Settings/ExtensionCard.swift | Extension card and status lifetime |
 | Routes/App/Settings/Extensions.swift | Inline tabs/import/list/options/source dialogs |
 | Source-check script (since removed at user request) | Historical source-contract and delimiter regression checks |

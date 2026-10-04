@@ -1,5 +1,26 @@
-// Mirrors: src/routes/app/settings/changelog/+page.svelte
+//
+//  SettingsChangelogPage.swift
+//  Hayase
+//
+//  Mirrors: src/routes/app/settings/changelog/+page.svelte: the sections of the Changelog settings page.
+//
+
+import Foundation
 import UIKit
+
+extension SettingsSectionCatalog {
+    static let changelogSections: [Section] = [
+        Section(header: "", rows: [
+            Row(title: "Changelog",
+                description: "New updates and improvements to Hayase.",
+                kind: .changelogPlaceholder),
+        ], tab: .changelog),
+    ]
+}
+
+// MARK: - ChangelogPage
+
+// Mirrors: src/routes/app/settings/changelog/+page.svelte
 
 final class SettingsChangelogView: UIView, SettingsResponsiveView {
 
