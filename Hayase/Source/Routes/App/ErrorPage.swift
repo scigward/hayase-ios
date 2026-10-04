@@ -67,7 +67,7 @@ final class ErrorPageViewController: UIViewController {
 
         // The text block: a column of `w-96` below `sm`, a row of `w-[38rem]` from it.
         let block: CGSize
-        let statusSize = statusLabel.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: 60))
+        let statusSize = statusLabel.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 60))
         let statusWidth = ceil(statusSize.width)
         var statusFrame = CGRect.zero
         var separatorFrame = CGRect.zero
@@ -75,7 +75,7 @@ final class ErrorPageViewController: UIViewController {
         if wide {
             let container: CGFloat = min(608, bounds.width)
             let available = max(0, container - statusWidth - 49)   // `mx-6` on both sides of a 1pt rule
-            let natural = ceil(messageLabel.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)).width)
+            let natural = ceil(messageLabel.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)).width)
             let messageWidth = min(natural, available)
             let messageHeight = ceil(messageLabel.sizeThatFits(CGSize(width: messageWidth, height: .greatestFiniteMagnitude)).height)
             let height = max(60, 80, messageHeight)   // `h-20` rule
