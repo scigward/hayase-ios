@@ -1,28 +1,23 @@
 // Mirrors: src/routes/app/settings/+layout.svelte and app.css (hearbeat).
 import UIKit
 
-final class SettingsSupportButton: UIButton {
+/// `<Button size='sm' class='font-bold gap-2 ...'>` of the default variant: `bg-primary text-primary-foreground
+/// select:bg-primary/60 shadow` with the 150ms of `transition-colors`, `h-8 px-3 text-xs`, and the heart that beats.
+final class SettingsSupportButton: SelectButton {
     private static let heartColor = UIColor(red: 250 / 255, green: 104 / 255, blue: 182 / 255, alpha: 1)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        var style = UIButton.Configuration.plain()
-        // Button size="sm" uses rounded-md, never UIKit's adaptive capsule.
-        style.cornerStyle = .fixed
-        style.background.cornerRadius = 6
-        style.background.backgroundColor = UIColor.HayaseTheme.primary
-        var titleAttributes = AttributeContainer()
-        titleAttributes.font = UIFont.nunito(ofSize: 12, weight: .bold)
-        titleAttributes.foregroundColor = UIColor.HayaseTheme.primaryForeground
-        style.attributedTitle = AttributedString("Donate", attributes: titleAttributes)
-        style.image = UIImage.hayaseFilledIcon("heart", pointSize: 18)?
-            .withTintColor(Self.heartColor, renderingMode: .alwaysOriginal)
-        style.imagePadding = 8
-        style.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12)
-        configuration = style
-        backgroundColor = UIColor.HayaseTheme.primary
-        layer.cornerRadius = 6
-        clipsToBounds = true
+        applyPrimaryVariant()
+        titleLabel?.font = UIFont.nunito(ofSize: 12, weight: .bold)
+        setTitle("Donate", for: .normal)
+        setImage(UIImage.hayaseFilledIcon("heart", pointSize: 18)?
+            .withTintColor(Self.heartColor, renderingMode: .alwaysOriginal), for: .normal)
+        // gap-2: 8pt between the heart and the text
+        imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 4)
+        titleEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: -4)
+        contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        clipsToBounds = true   // contain-strict
         accessibilityLabel = "Donate"
         for notification in [UIApplication.didBecomeActiveNotification,
                              UIApplication.willResignActiveNotification,

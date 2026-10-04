@@ -24,6 +24,8 @@ final class LayeredIconView: UIView {
         case download
         case bolt
         case code
+        /// foldersync.svelte: the two sync arrows turn about their middle while the button is selected.
+        case folderSync
         /// login.svelte is the download icon turned a quarter to the left.
         case login
     }
@@ -207,6 +209,16 @@ final class LayeredIconView: UIView {
                 targets.append(path)
             }
             root.addSublayer(shape("m14.5 4-5 16"))
+        case .folderSync:
+            root.addSublayer(shape("M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v.5"))
+            // `<g class='target-animated-icon'>` has `transform-box: fill-box; transform-origin: center`
+            let arrows = ["M12 10v4h4", "m12 14 1.535-1.605a5 5 0 0 1 8 1.5", "M22 22v-4h-4", "m22 18-1.535 1.605a5 5 0 0 1-8-1.5"]
+            let outline = CGMutablePath()
+            arrows.forEach { outline.addPath(SVGPath.path($0)) }
+            let box = outline.boundingBoxOfPath
+            let spin = group(origin: CGPoint(x: box.midX, y: box.midY))
+            arrows.forEach { spin.addSublayer(shape($0)) }
+            root.addSublayer(spin)
         }
     }
 
@@ -252,6 +264,9 @@ final class LayeredIconView: UIView {
         case .bolt:
             guard selected else { return }
             root.add(SelectButton.IconAnimation.boltSpin.makeAnimation(), forKey: Self.selectKey)
+        case .folderSync:
+            // `transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)` to `rotate(-50deg)`, and back
+            turn(groups[0], to: selected ? -50 : 0)
         case .code:
             guard selected else { return }
             // Code.svelte: the two brackets move out and back independently; the slash stays still.
@@ -355,6 +370,22 @@ final class LayeredIconView: UIView {
         animation.timingFunctions = [spring, spring]
         animation.duration = 0.6
         return animation
+    }
+
+    private func turn(_ group: CALayer, to degrees: CGFloat, duration: CFTimeInterval = 0.4,
+                      timing: CAMediaTimingFunction = CAMediaTimingFunction(controlPoints: 0.175, 0.885, 0.32, 1.275)) {
+        let current = group.presentation()?.value(forKeyPath: "transform.rotation.z") as? CGFloat ?? 0
+        let target = degrees * .pi / 180
+        let animation = CABasicAnimation(keyPath: "transform.rotation.z")
+        animation.fromValue = current
+        animation.toValue = target
+        animation.duration = duration
+        animation.timingFunction = timing
+        group.add(animation, forKey: "turn")
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        group.transform = CATransform3DMakeRotation(target, 0, 0, 1)
+        CATransaction.commit()
     }
 
     private func slide(_ group: CALayer, to offset: CGFloat, duration: CFTimeInterval = 0.2,

@@ -22,6 +22,9 @@ final class CommandItemCell: UITableViewCell {
     private var checkSizeConstraints: [NSLayoutConstraint] = []
     private var checkContainerSizeConstraints: [NSLayoutConstraint] = []
     private var titleTrailingToSelectConstraint: NSLayoutConstraint?
+    /// `select:bg-accent` while the pointer is over the item (cmdk selects an item on `pointermove`), at once as
+    /// the class has no `transition-colors`
+    private let hoverBackground = UIView()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -50,6 +53,13 @@ final class CommandItemCell: UITableViewCell {
         selectedBackgroundView = UIView()
         selectedBackgroundView?.backgroundColor = UIColor.HayaseTheme.accent
         selectedBackgroundView?.layer.cornerRadius = 4   // rounded-sm
+        hoverBackground.backgroundColor = UIColor.HayaseTheme.accent
+        hoverBackground.layer.cornerRadius = 4
+        hoverBackground.alpha = 0
+        hoverBackground.isUserInteractionEnabled = false
+        hoverBackground.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        insertSubview(hoverBackground, at: 0)
+        addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hoverChanged(_:))))
 
         checkContainer.translatesAutoresizingMaskIntoConstraints = false
         checkContainer.layer.cornerRadius = 4   // rounded-sm
@@ -98,6 +108,20 @@ final class CommandItemCell: UITableViewCell {
         NSLayoutConstraint.activate(fixedConstraints)
         NSLayoutConstraint.activate(checkSizeConstraints)
         NSLayoutConstraint.activate(checkContainerSizeConstraints)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        hoverBackground.frame = bounds
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        hoverBackground.alpha = 0
+    }
+
+    @objc private func hoverChanged(_ recognizer: UIHoverGestureRecognizer) {
+        hoverBackground.alpha = recognizer.state == .began || recognizer.state == .changed ? 1 : 0
     }
 
     func configure(option: CommandOption, selected: Bool, multiple: Bool, selectStyle: Bool = false) {

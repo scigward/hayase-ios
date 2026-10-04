@@ -256,7 +256,9 @@ final class ThreadCommentView: UIView {
     }
 }
 
-final class ThreadForumIconButton: UIButton {
+/// `<Button size='icon-sm' variant='ghost'>`: `size-[1.6rem] rounded-sm`, `select:bg-secondary-foreground/20
+/// select:text-accent-foreground` and `disabled:opacity-50`
+final class ThreadForumIconButton: SelectButton {
     private let iconName: String
     private let pointSize: CGFloat
 
@@ -268,16 +270,13 @@ final class ThreadForumIconButton: UIButton {
     }
 
     required init?(coder: NSCoder) {
-        self.iconName = "circle-question-mark"
-        self.pointSize = 11.2
-        super.init(coder: coder)
-        setup()
+        nil
     }
 
     private func setup() {
-        backgroundColor = .clear
-        tintColor = UIColor.HayaseTheme.foreground
-        adjustsImageWhenHighlighted = true
+        applyGhostVariant()
+        dimsWhenDisabled = true
+        layer.cornerRadius = 4   // rounded-sm
         translatesAutoresizingMaskIntoConstraints = false
         setFilled(false)
         NSLayoutConstraint.activate([
@@ -291,9 +290,5 @@ final class ThreadForumIconButton: UIButton {
             ? HayaseIcon.filledImage(iconName, pointSize: pointSize)
             : UIImage.hayaseIcon(iconName, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .regular))
         setImage(image, for: .normal)
-    }
-
-    override var isEnabled: Bool {
-        didSet { alpha = isEnabled ? 1 : 0.4 }
     }
 }

@@ -477,10 +477,9 @@ extension DownloadsViewController {
         librarySearchField.addTarget(self, action: #selector(librarySearchChanged), for: .editingChanged)
         libraryView.addSubview(librarySearchField)
 
-        let rescanConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        libraryRescanButton.setImage(UIImage.hayaseIcon("folder-sync", withConfiguration: rescanConfig), for: .normal)
         TorrentClientStyle.configureIconButton(libraryRescanButton, variant: .secondary)
         libraryRescanButton.applySecondaryVariant()
+        libraryRescanButton.setLayeredIcon(.folderSync, size: 16)   // `<FolderSync class='size-4' />`, animated-icon
         libraryRescanButton.accessibilityLabel = "Rescan torrents"
         libraryRescanButton.addTarget(self, action: #selector(rescanLibrary), for: .touchUpInside)
         libraryRescanButton.translatesAutoresizingMaskIntoConstraints = false
