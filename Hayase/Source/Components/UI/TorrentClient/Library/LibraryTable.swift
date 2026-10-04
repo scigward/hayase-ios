@@ -1,5 +1,6 @@
 // Mirrors: ui/torrentclient/library/table.svelte and cells.
 
+import CoreData
 import Foundation
 import UIKit
 

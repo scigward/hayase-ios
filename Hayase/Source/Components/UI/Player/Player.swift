@@ -286,6 +286,10 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     var castDisplaysTimer: Timer?
     var webTorrentDisplays: [WebTorrentDisplay] = []
     var onCastStateChanged: (() -> Void)?
+    /// Stored here: an extension cannot hold a property that has an observer
+    var activeCastDisplay: WebTorrentDisplay? {
+        didSet { onCastStateChanged?() }
+    }
     var onCastTick: ((_ elapsed: Double, _ duration: Double) -> Void)?
     var isEOFTriggered = false // Used to emulate the missing MPV_EVENT_END_FILE
     var lastSeekTime: Date?    // Tracks last seek to prevent false EOF triggers

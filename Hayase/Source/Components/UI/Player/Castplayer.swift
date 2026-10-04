@@ -342,10 +342,6 @@ extension VideoPlayerViewController {
         present(dialog, animated: true)
     }
 
-    var activeCastDisplay: WebTorrentDisplay? {
-        didSet { onCastStateChanged?() }
-    }
-
     /// MiniPlayerManager reads these to build the miniplayer's own
     /// castplayer.svelte `isMiniplayer` branch — it can't reuse this VC's
     /// view once minimized (reparented into a different window), so it

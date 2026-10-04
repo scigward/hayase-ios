@@ -5,6 +5,7 @@
 //  UIKit counterpart for the interface badge component.
 //
 
+import CoreImage
 import UIKit
 
 final class Badge: UIControl, ActiveElementObserver {
