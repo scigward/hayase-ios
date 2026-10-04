@@ -2173,6 +2173,10 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         let description = "Episode \(episodeNumber) / \(total > 0 ? String(total) : "?")"
         MediaSession.shared.setMediaSession(owner: self, title: animeTitleText(), description: description,
                                             imageURL: anime?.animeImgL, duration: duration)
+        var previous: (() -> Void)?
+        if canGoPrev { previous = { [weak self] in self?.prevTapped() } }
+        var next: (() -> Void)?
+        if canGoNext { next = { [weak self] in self?.nextTapped() } }
         MediaSession.shared.setActionHandlers(owner: self, MediaSession.Handlers(
             play: { [weak self] in
                 guard let self, self.isPaused else { return }
@@ -2196,8 +2200,8 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
                 self.lastSeekTime = Date()
                 self.surface.mpv.seek(by: self.seekDurationSeconds)
             },
-            previousTrack: canGoPrev ? { [weak self] in self?.prevTapped() } : nil,
-            nextTrack: canGoNext ? { [weak self] in self?.nextTapped() } : nil))
+            previousTrack: previous,
+            nextTrack: next))
     }
 
     /// `native.setPlayBackState` and `native.setPositionState`: 'none' until the media is there.
