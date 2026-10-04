@@ -342,7 +342,7 @@ struct TorrentBatchResolver {
         }
 
         let nextVisited = visited.union([media.id])
-        let rootHighest = Self.episodes(for: rootMedia)
+        let rootHighest = Self.episodesOrOne(rootMedia)
 
         func finishWithoutEdge(_ resolvedIncrement: Bool) {
             completion(SeasonResolveResult(media: media,
@@ -416,7 +416,7 @@ struct TorrentBatchResolver {
                 NSLog("[TorrentBatchResolver] Season edge media fetch failed: %@", error.description)
             }
             let nextMedia = (try? result.get()) ?? edge
-            let highest = Self.episodes(for: nextMedia)
+            let highest = Self.episodesOrOne(nextMedia)
             let diff = episode - (highest + offset)
             let nextOffset = offset + (increment ? rootHighest : highest)
             let nextRootMedia = increment ? nextMedia : rootMedia
@@ -786,6 +786,12 @@ struct TorrentBatchResolver {
     /// util.ts `episodes(media)`
     static func episodes(for media: AnimeItem) -> Int {
         AniListUtil.episodes(for: media)
+    }
+
+    /// `episodes(media) || 1` of resolver.ts: a media with no count is one episode long
+    private static func episodesOrOne(_ media: AnimeItem) -> Int {
+        let count = episodes(for: media)
+        return count == 0 ? 1 : count
     }
 
     private static func cachedTitleIDs(for keys: [String]) -> [String: Int] {
