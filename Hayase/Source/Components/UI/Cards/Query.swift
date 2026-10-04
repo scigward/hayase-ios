@@ -1,5 +1,5 @@
 //
-//  QueryCard.swift
+//  Query.swift
 //  Hayase
 //
 //  Mirrors: interface components/ui/cards/query.svelte

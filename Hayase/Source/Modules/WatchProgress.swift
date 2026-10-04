@@ -1,5 +1,5 @@
 //
-//  WatchProgressService.swift
+//  WatchProgress.swift
 //  Hayase
 //
 //  Mirrors: src/lib/modules/watchProgress.ts: one record for each media, `watchProgress[mediaId] = { episode,

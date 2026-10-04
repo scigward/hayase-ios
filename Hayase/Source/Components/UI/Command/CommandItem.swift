@@ -1,5 +1,5 @@
 //
-//  CommandItemCell.swift
+//  CommandItem.swift
 //  Hayase
 //
 //  UIKit counterpart for the matching interface component.

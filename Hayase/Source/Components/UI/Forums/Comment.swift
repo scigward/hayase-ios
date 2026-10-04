@@ -1,5 +1,5 @@
 //
-//  ThreadCommentView.swift
+//  Comment.swift
 //  Hayase
 //
 //  Native UIKit counterpart for recursive AniList forum comments.

@@ -1,5 +1,5 @@
 //
-//  CommandPopoverViewController.swift
+//  Command.swift
 //  Hayase
 //
 //  UIKit counterpart for the matching interface component.

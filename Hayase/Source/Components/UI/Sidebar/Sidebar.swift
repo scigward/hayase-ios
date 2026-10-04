@@ -1,5 +1,5 @@
 //
-//  HayaseSidebarController.swift
+//  Sidebar.swift
 //  Hayase
 //
 //  Made by scigward.

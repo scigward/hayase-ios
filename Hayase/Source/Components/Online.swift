@@ -1,5 +1,5 @@
 //
-//  HayaseOnlineBar.swift
+//  Online.swift
 //  Hayase
 //
 //  Mirrors: interface lib/components/Online.svelte (with lib/components/icons/AnilistError.svelte),

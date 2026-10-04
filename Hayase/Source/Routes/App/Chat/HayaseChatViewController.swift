@@ -47,7 +47,7 @@
 //    `AniListClient.fetchUserProfileResult(id:)` and `Profile.swift`'s new
 //    optional `detailFetcher` — mirroring `client.user(Number(user.id))` —
 //    so the card's bio/banner/stats are populated rather than stuck at
-//    their built-in empty-state fallback (see ChatUserListCell.swift and
+//    their built-in empty-state fallback (see UserList.swift and
 //    Profile.swift's own header comments for why this fetches-then-presents
 //    instead of presenting immediately and patching the card in place once
 //    data arrives).
@@ -79,7 +79,7 @@
 //  On literally sharing UI code with W2G (asked about directly, initially
 //  answered "not practical" — revisited after that answer turned out to be
 //  wrong in practice): the userlist row is now `ChatUserListCell`
-//  (`Components/UI/Chat/ChatUserListCell.swift`), a single implementation
+//  (`Components/UI/Chat/UserList.swift`), a single implementation
 //  used by both this screen and `W2GViewController`, behind a small
 //  `ChatListUser` protocol both `IRCUser` and `W2GChatUser` conform to.
 //  This replaced a hand-copied `IRCUserCell` that had already drifted from

@@ -1,5 +1,5 @@
 //
-//  ThreadPaginationView.swift
+//  Pagination.swift
 //  Hayase
 //
 //  Native UIKit counterpart for the forum comments pagination row.

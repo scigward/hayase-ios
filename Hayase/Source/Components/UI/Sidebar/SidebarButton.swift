@@ -1,5 +1,5 @@
 //
-//  HayaseSidebarButton.swift
+//  SidebarButton.swift
 //  Hayase
 //
 //  Made by scigward.

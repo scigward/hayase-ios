@@ -1,5 +1,5 @@
 //
-//  ThreadWriteViewController.swift
+//  Write.swift
 //  Hayase
 //
 //  Native bottom-sheet writer for AniList forum comments.

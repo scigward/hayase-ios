@@ -1,5 +1,5 @@
 //
-//  ChatUserListCell.swift
+//  UserList.swift
 //  Hayase
 //
 //  Created by scigward.

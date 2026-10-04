@@ -1,5 +1,5 @@
 //
-//  LoadIn.swift
+//  Load.swift
 //  Hayase
 //
 //  Mirrors: interface components/ui/img/load.svelte.

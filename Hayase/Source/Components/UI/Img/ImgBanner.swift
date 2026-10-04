@@ -1,5 +1,5 @@
 //
-//  FullBanner+Artwork.swift
+//  ImgBanner.swift
 //  Hayase
 //
 //  Mirrors: interface components/ui/img/banner.svelte and the `episodesCached` logo of

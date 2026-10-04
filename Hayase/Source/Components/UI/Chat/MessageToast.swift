@@ -1,5 +1,5 @@
 //
-//  ChatMessageToastCardView.swift
+//  MessageToast.swift
 //  Hayase
 //
 //  Mirrors: interface components/ui/chat MessageToast.svelte, shown with `toast.custom` and

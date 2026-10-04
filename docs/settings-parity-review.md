@@ -79,11 +79,11 @@ All paths below are relative to `Hayase/Source/` unless otherwise stated.
 | Components/UI/Profile/AccountCardView.swift | Account layout/state rendering |
 | Components/UI/Profile/AccountCardView+Authentication.swift | Existing auth flows and Kitsu dialog |
 | Components/UI/Profile/AccountCardView+Settings.swift | Shared-control account dialogs |
-| Components/UI/Settings/SettingsCardView.swift | Reusable cards, typography, input/action/slider controls |
-| Components/UI/Settings/SettingsDialogViewController.swift | Shared dialog and nonblocking message presentation |
-| Components/UI/Switch/HayaseSwitch.swift | Source-sized accessible switch |
+| Components/UI/Settings/SettingCard.swift | Reusable cards, typography, input/action/slider controls |
+| Components/UI/Settings/DialogContent.swift | Shared dialog and nonblocking message presentation |
+| Components/UI/Switch/Switch.swift | Source-sized accessible switch |
 | Components/UI/Sidebar/HayaseRouteTransition.swift | Layout-first, interruptible snapshot fade |
-| Components/UI/Sidebar/HayaseSidebarController.swift | Root snapshot scope and transition cancellation |
+| Components/UI/Sidebar/Sidebar.swift | Root snapshot scope and transition cancellation |
 | Modules/Extensions/ExtensionModels.swift | Optional deprecated/manifest-version metadata |
 | Modules/Extensions/ExtensionService.swift | Source-code retrieval |
 | Modules/Torrent/Backend/TorrentBackendSettings.swift | Fractional speed serialization |
@@ -140,5 +140,5 @@ Incremental baseline: `75e985c`. Source references remain SettingCard.svelte (gr
 - HayaseSwitch resists stretching/compression on both axes. SettingsCardView assigns controls stronger horizontal hugging than the growing text column, preserving any stronger existing priority. This addresses the narrow 18+ description column and displaced switches without changing source track dimensions.
 - SettingsTypography reserves at least Nunito's actual line height. CSS allows glyph overflow outside leading-none line boxes; UILabel does not render those boxes identically. Native line boxes can therefore be taller than the CSS numeric value to avoid cutting off Enable Sync and dialog headings. Device typography comparison remains outstanding.
 - HayaseSidebarController retains all original navigation stacks in routeControllers but installs only the active stack in the hidden UITabBarController. UIKit therefore has no overflow tabs to route through More. Logical indexes are stored independently in HayaseTabIndex, including while stacks are detached; active player presentation still uses the existing tab/navigation containment APIs. The obsolete selectedIndex observer was removed because the visible slot is always zero, not the logical route index.
-- Files changed: SettingsExtensionsView.swift, SettingsCardView.swift, HayaseSwitch.swift, HayaseSidebarController.swift, HayaseTabIndex.swift, scripts/check_settings_source.mjs, and this report. No player rendering or miniplayer lifetime code changed.
+- Files changed: SettingsExtensionsView.swift, SettingCard.swift, Switch.swift, Sidebar.swift, HayaseTabIndex.swift, scripts/check_settings_source.mjs, and this report. No player rendering or miniplayer lifetime code changed.
 - Validation: source contracts and delimiter checks cover 21 Swift files; git diff --check passed. No Swift parse/type-check, Xcode build, or device execution was available. No patch artifact was requested. Recheck extension first launch with saved configurations, import/update/options, every route on compact screens, switch rows, account/dialog headings, back/forward, and player/miniplayer navigation on-device.

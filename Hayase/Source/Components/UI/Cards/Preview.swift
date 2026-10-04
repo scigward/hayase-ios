@@ -1,5 +1,5 @@
 //
-//  PreviewCard.swift
+//  Preview.swift
 //  Hayase
 //
 //  Mirrors interface cards/preview.svelte.

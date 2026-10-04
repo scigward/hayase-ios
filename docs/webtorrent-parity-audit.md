@@ -93,7 +93,7 @@ Upstream: [`deleteTorrents`](https://github.com/hayase-app/torrent-client/blob/a
 
 ### 6. P2 — Cached torrents are missing from extension ranking and downloaded indication
 
-**Evidence:** the bridge has a `cachedTorrents` RPC, but the Swift client has no corresponding consumer/shared downloaded-hash store. [ExtensionSearchViewController](../Hayase/Source/Components/UI/Extensions/ExtensionSearchViewController.swift) explicitly skips the downloaded-torrent rank. Interface populates `server.downloaded` at startup, updates it on playback/library changes, ranks cached results ahead of ordinary/low-seeder results after the low-accuracy check, and renders their downloaded indicator.
+**Evidence:** the bridge has a `cachedTorrents` RPC, but the Swift client has no corresponding consumer/shared downloaded-hash store. [ExtensionSearchViewController](../Hayase/Source/Components/UI/Extensions/SearchModal.swift) explicitly skips the downloaded-torrent rank. Interface populates `server.downloaded` at startup, updates it on playback/library changes, ranks cached results ahead of ordinary/low-seeder results after the low-accuracy check, and renders their downloaded indicator.
 
 **Target/test:** use the authoritative backend cache hashes consistently in ranking and row presentation. Persist a cached result with few seeders, restart, and compare its rank/indicator and auto-selection with interface.
 

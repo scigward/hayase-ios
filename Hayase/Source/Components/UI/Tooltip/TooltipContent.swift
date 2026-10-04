@@ -1,5 +1,5 @@
 //
-//  Tooltip.swift
+//  TooltipContent.swift
 //  Hayase
 //
 //  Mirrors: src/lib/components/ui/tooltip/tooltip-content.svelte on bits-ui's Tooltip

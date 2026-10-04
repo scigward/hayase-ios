@@ -1,4 +1,4 @@
-// ExtensionSearchViewController.swift
+// SearchModal.swift
 // Ports SearchModal.svelte from hayase-app/interface exactly to native UIKit.
 //
 // Layout (matches SearchModal.svelte):
