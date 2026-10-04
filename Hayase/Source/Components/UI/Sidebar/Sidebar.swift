@@ -4,7 +4,8 @@
 //
 //  Made by scigward.
 //
-//  Mirrors: src/routes/app/+layout.svelte, src/routes/+layout.svelte (onNavigate, ProgressBar), src/lib/components/ui/sidebar/sidebar.svelte, src/routes/app/anime/[id]/+page.svelte (preserved tab state)
+//  Mirrors: src/lib/components/ui/sidebar/sidebar.svelte (the desktop and mobile sidebars and the backdrop of the banner), and the host of the routes (the stand-in for SvelteKit: it loads a route, shows it and keeps the state of the anime page).
+//  What src/routes/+layout.svelte and src/routes/app/+layout.svelte do is in Routes/RootLayout.swift and Routes/App/AppLayout.swift, as extensions of this class.
 //
 
 import UIKit
@@ -12,59 +13,59 @@ import UIKit
 // MARK: - HayaseSidebarController
 
 final class HayaseSidebarController: UIViewController {
-    private static let homeBannerBackdropDidChange = Notification.Name("HayaseHomeBannerBackdropDidChange")
-    private static let homeBannerBackdropURLKey = "url"
-    private static let homeBannerBackdropAlphaKey = "alpha"
-    private static let homeBannerBackdropScrollOffsetKey = "scrollOffset"
-    private static let homeBannerBackdropHeightKey = "height"
-    private static let homeBannerBackdropRouteKey = "route"
-    private static let homeBannerBackdropMediaKey = "media"
-    private static let homeBannerBackdropClearKey = "clear"
-    private static let homeBannerBackdropHomeRoute = "home"
-    private static let homeBannerBackdropAnimeRoute = "anime"
-    private static let homeBannerBackdropPlayerRoute = "player"
+    static let homeBannerBackdropDidChange = Notification.Name("HayaseHomeBannerBackdropDidChange")
+    static let homeBannerBackdropURLKey = "url"
+    static let homeBannerBackdropAlphaKey = "alpha"
+    static let homeBannerBackdropScrollOffsetKey = "scrollOffset"
+    static let homeBannerBackdropHeightKey = "height"
+    static let homeBannerBackdropRouteKey = "route"
+    static let homeBannerBackdropMediaKey = "media"
+    static let homeBannerBackdropClearKey = "clear"
+    static let homeBannerBackdropHomeRoute = "home"
+    static let homeBannerBackdropAnimeRoute = "anime"
+    static let homeBannerBackdropPlayerRoute = "player"
 
-    private let tabHost: UITabBarController
-    private var routeControllers: [UIViewController] = []
-    private var selectedRouteIndex = 0
-    private let router = Router.shared
-    private let sidebarList = HayaseSidebarListView(mode: .desktop)
-    private let mobileSidebarList = HayaseSidebarListView(mode: .mobile)
-    private let contentContainer = UIView()
+    let tabHost: UITabBarController
+    var routeControllers: [UIViewController] = []
+    var selectedRouteIndex = 0
+    let router = Router.shared
+    let sidebarList = HayaseSidebarListView(mode: .desktop)
+    let mobileSidebarList = HayaseSidebarListView(mode: .mobile)
+    let contentContainer = UIView()
     /// Online.svelte sits above the sidebar and the page in routes/+layout.svelte.
-    private let onlineBar = HayaseOnlineBar()
-    private static let routeSnapshotLimit = 10
+    let onlineBar = HayaseOnlineBar()
+    static let routeSnapshotLimit = 10
 
-    private var progressWindow: HayaseProgressBarWindow?
-    private let routeTransition = HayaseRouteTransition()
-    private let mobileLauncher = UIView()
-    private let mobileGridContainer = UIView()
-    private let mobileToggleButton = HayaseSidebarButton(route: nil, size: .mobile)
-    private let sidebarContainer = UIView()
-    private let sidebarBackdropImageView = UIImageView()
-    private let sidebarBackdropGradientView = BannerGradientView()
-    private let sidebarBackdropCoverView = UIView()
-    private var sidebarBackdropTask: URLSessionDataTask?
-    private var sidebarBackdropURL: String?
+    var progressWindow: HayaseProgressBarWindow?
+    let routeTransition = HayaseRouteTransition()
+    let mobileLauncher = UIView()
+    let mobileGridContainer = UIView()
+    let mobileToggleButton = HayaseSidebarButton(route: nil, size: .mobile)
+    let sidebarContainer = UIView()
+    let sidebarBackdropImageView = UIImageView()
+    let sidebarBackdropGradientView = BannerGradientView()
+    let sidebarBackdropCoverView = UIView()
+    var sidebarBackdropTask: URLSessionDataTask?
+    var sidebarBackdropURL: String?
     /// The media the banner belongs to: `bannerSrc`, which banner-image.svelte keys on.
-    private var sidebarBackdropMediaID: Int?
-    private var sidebarBackdropAlpha: CGFloat = 0
-    private var sidebarBackdropCoverTransitionID = 0
-    private var sidebarBackdropHeightConstraint: NSLayoutConstraint?
-    private var sidebarWidthConstraint: NSLayoutConstraint?
-    private var mobileLauncherWidthConstraint: NSLayoutConstraint?
-    private var mobileLauncherHeightConstraint: NSLayoutConstraint?
-    private var isMobileMenuOpen = false
-    private var isDesktopMode: Bool?
-    private var playerFullscreenActive = false
-    private var routeObservationID: UUID?
-    private var activeHistorySwipeDirection: HayaseHistorySwipe.Direction?
-    private var historySwipe: HayaseHistorySwipe?
-    private var routeSnapshots: [Route: UIView] = [:]
-    private var routeSnapshotOrder: [Route] = []
-    private var lastAppliedRoute: Route?
-    private var routeScrollPositions: [Route: CGPoint] = [:]
-    private var isNavigationLoading = false
+    var sidebarBackdropMediaID: Int?
+    var sidebarBackdropAlpha: CGFloat = 0
+    var sidebarBackdropCoverTransitionID = 0
+    var sidebarBackdropHeightConstraint: NSLayoutConstraint?
+    var sidebarWidthConstraint: NSLayoutConstraint?
+    var mobileLauncherWidthConstraint: NSLayoutConstraint?
+    var mobileLauncherHeightConstraint: NSLayoutConstraint?
+    var isMobileMenuOpen = false
+    var isDesktopMode: Bool?
+    var playerFullscreenActive = false
+    var routeObservationID: UUID?
+    var activeHistorySwipeDirection: HayaseHistorySwipe.Direction?
+    var historySwipe: HayaseHistorySwipe?
+    var routeSnapshots: [Route: UIView] = [:]
+    var routeSnapshotOrder: [Route] = []
+    var lastAppliedRoute: Route?
+    var routeScrollPositions: [Route: CGPoint] = [:]
+    var isNavigationLoading = false
 
     init(tabBarController: UITabBarController) {
         self.tabHost = tabBarController
@@ -92,53 +93,7 @@ final class HayaseSidebarController: UIViewController {
         view.addInteraction(UIDropInteraction(delegate: self))
     }
 
-    // MARK: - Dropped and pasted images (routes/app/+layout.svelte `handleTransfer`)
-
     override var canBecomeFirstResponder: Bool { true }
-
-    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        if action == #selector(UIResponder.paste(_:)) {
-            let board = UIPasteboard.general
-            return board.hasImages || board.hasStrings || board.hasURLs
-        }
-        return super.canPerformAction(action, withSender: sender)
-    }
-
-    override func paste(_ sender: Any?) {
-        let board = UIPasteboard.general
-        if let image = board.image {
-            handleTransferred(image: image)
-        } else if let text = board.string ?? board.url?.absoluteString {
-            handleTransferred(text: text)
-        }
-    }
-
-    private static let imagePattern = try? NSRegularExpression(pattern: "\\.(jpeg|jpg|gif|png|webp)", options: .caseInsensitive)
-    private static let w2gPattern = try? NSRegularExpression(pattern: "hayase\\.watch//w2g/(.+)")
-
-    /// A picture goes to the search page to be looked up.
-    func handleTransferred(image: UIImage) {
-        guard let data = image.jpegData(compressionQuality: 0.8) else { return }
-        openSearchToTrace(.image(data, mimeType: "image/jpeg"))
-    }
-
-    /// Text that names a picture goes to the search page too; a watch together link opens its room.
-    func handleTransferred(text: String) {
-        let whole = NSRange(text.startIndex..., in: text)
-        if Self.imagePattern?.firstMatch(in: text, range: whole) != nil {
-            openSearchToTrace(.url(text))
-        } else if let match = Self.w2gPattern?.firstMatch(in: text, range: whole),
-                  let range = Range(match.range(at: 1), in: text) {
-            router.navigate(.w2g(id: String(text[range])))
-        }
-    }
-
-    /// `goto('/#/app/search', { state: { image } })`
-    private func openSearchToTrace(_ source: TraceMoe.Source) {
-        router.navigate(.search(nil))
-        let navigation = hostNavigationController(for: .search(nil))
-        (navigation?.viewControllers.first as? SearchViewController)?.trace(source)
-    }
 
     override var prefersStatusBarHidden: Bool { true }
     override var childForStatusBarHidden: UIViewController? { nil }
@@ -152,11 +107,11 @@ final class HayaseSidebarController: UIViewController {
         ]
     }
 
-    @objc private func routeBackCommand() {
+    @objc func routeBackCommand() {
         router.back()
     }
 
-    @objc private func routeForwardCommand() {
+    @objc func routeForwardCommand() {
         router.forward()
     }
 
@@ -190,12 +145,7 @@ final class HayaseSidebarController: UIViewController {
         updateLayoutForCurrentWidth()
     }
 
-    private func installProgressBarIfNeeded() {
-        guard progressWindow == nil, let scene = view.window?.windowScene else { return }
-        progressWindow = HayaseProgressBarWindow(windowScene: scene)
-    }
-
-    private func setupContentHost() {
+    func setupContentHost() {
         hideNativeTabNavigation()
         tabHost.delegate = self
 
@@ -224,111 +174,7 @@ final class HayaseSidebarController: UIViewController {
         installRouteHistoryGestures()
     }
 
-    private func installRouteHistoryGestures() {
-        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handleRouteHistoryPan(_:)))
-        panGesture.maximumNumberOfTouches = 1
-        panGesture.cancelsTouchesInView = false
-        panGesture.delegate = self
-        view.addGestureRecognizer(panGesture)
-    }
-
-    @objc private func handleRouteHistoryPan(_ gesture: UIPanGestureRecognizer) {
-        let translation = gesture.translation(in: view)
-        switch gesture.state {
-        case .began:
-            beginHistorySwipe()
-        case .changed:
-            guard let swipe = historySwipe else { return }
-            let dragged = swipe.direction == .back ? translation.x : -translation.x
-            guard view.bounds.width > 0 else { return }
-            swipe.update(progress: max(dragged, 0) / view.bounds.width)
-        case .ended:
-            finishHistorySwipe(translation: translation, velocity: gesture.velocity(in: view))
-        case .cancelled, .failed:
-            historySwipe?.finish(completing: false) { [weak self] in
-                self?.endHistorySwipe()
-            }
-            activeHistorySwipeDirection = nil
-        default:
-            break
-        }
-    }
-
-    private func beginHistorySwipe() {
-        guard historySwipe == nil,
-              let direction = activeHistorySwipeDirection,
-              let route = direction == .back ? router.previousRoute : router.nextRoute,
-              let destination = routeSnapshots[route],
-              destination.bounds.size == view.bounds.size,
-              let current = view.snapshotView(afterScreenUpdates: false) else { return }
-        historySwipe = HayaseHistorySwipe(direction: direction, current: current, destination: destination, host: view)
-    }
-
-    private func finishHistorySwipe(translation: CGPoint, velocity: CGPoint) {
-        let direction = activeHistorySwipeDirection
-        activeHistorySwipeDirection = nil
-        let commits: Bool
-        switch direction {
-        case .back:
-            commits = translation.x > 60 || velocity.x > 400
-        case .forward:
-            commits = translation.x < -60 || velocity.x < -400
-        case .none:
-            commits = false
-        }
-        guard let swipe = historySwipe else {
-            if commits {
-                if direction == .back { router.back() } else { router.forward() }
-            }
-            return
-        }
-        swipe.finish(completing: commits) { [weak self] in
-            guard let self else { return }
-            if commits {
-                self.completeHistorySwipe(swipe)
-            } else {
-                self.endHistorySwipe()
-            }
-        }
-    }
-
-    private func completeHistorySwipe(_ swipe: HayaseHistorySwipe) {
-        if let route = lastAppliedRoute {
-            storeSnapshot(swipe.current, for: route)
-        }
-        let moved = swipe.direction == .back ? router.back() : router.forward()
-        if !moved {
-            endHistorySwipe()
-        }
-    }
-
-    private func endHistorySwipe() {
-        guard let swipe = historySwipe else { return }
-        historySwipe = nil
-        view.layoutIfNeeded()
-        DispatchQueue.main.async {
-            swipe.remove()
-        }
-    }
-
-    private func captureSnapshotBeforeRouteChange(to route: Route) {
-        guard historySwipe == nil, !isMobileMenuOpen,
-              let previousRoute = lastAppliedRoute, previousRoute != route,
-              let snapshot = view.snapshotView(afterScreenUpdates: false) else { return }
-        storeSnapshot(snapshot, for: previousRoute)
-    }
-
-    private func storeSnapshot(_ snapshot: UIView, for route: Route) {
-        snapshot.frame = view.bounds
-        routeSnapshots[route] = snapshot
-        routeSnapshotOrder.removeAll { $0 == route }
-        routeSnapshotOrder.append(route)
-        while routeSnapshotOrder.count > Self.routeSnapshotLimit {
-            routeSnapshots.removeValue(forKey: routeSnapshotOrder.removeFirst())
-        }
-    }
-
-    private func installInterfaceRoutes() {
+    func installInterfaceRoutes() {
         guard let viewControllers = tabHost.viewControllers else { return }
         let selectedController = tabHost.selectedViewController
         routeControllers = Self.interfaceRoutes(from: viewControllers)
@@ -339,7 +185,7 @@ final class HayaseSidebarController: UIViewController {
         selectRouteController(at: selectedRouteIndex)
     }
 
-    private func selectRouteController(at index: Int) {
+    func selectRouteController(at index: Int) {
         guard routeControllers.indices.contains(index) else { return }
         let controller = routeControllers[index]
         selectedRouteIndex = index
@@ -351,7 +197,7 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
-    private static func interfaceRoutes(from viewControllers: [UIViewController]) -> [UIViewController] {
+    static func interfaceRoutes(from viewControllers: [UIViewController]) -> [UIViewController] {
         // Keep the storyboard-created navigation controllers intact. Moving
         // their root controllers into replacement navigation controllers here
         // changes UIKit ownership before the destination views have loaded.
@@ -365,12 +211,12 @@ final class HayaseSidebarController: UIViewController {
         return controllers
     }
 
-    private func hideHostedNavigationBars() {
+    func hideHostedNavigationBars() {
         hideNativeTabNavigation()
         hideNavigationChrome(in: tabHost)
     }
 
-    private func hideNativeTabNavigation() {
+    func hideNativeTabNavigation() {
         tabHost.tabBar.isHidden = true
         tabHost.tabBar.alpha = 0
         tabHost.tabBar.isUserInteractionEnabled = false
@@ -383,7 +229,7 @@ final class HayaseSidebarController: UIViewController {
         tabHost.view.setNeedsLayout()
     }
 
-    private func hideNavigationChrome(in viewController: UIViewController?) {
+    func hideNavigationChrome(in viewController: UIViewController?) {
         guard let viewController else { return }
         if let tab = viewController as? UITabBarController {
             tab.tabBar.isHidden = true
@@ -403,7 +249,7 @@ final class HayaseSidebarController: UIViewController {
         hideNavigationChrome(in: viewController.presentedViewController)
     }
 
-    private func setupDesktopSidebar() {
+    func setupDesktopSidebar() {
         sidebarList.translatesAutoresizingMaskIntoConstraints = false
         sidebarList.backgroundColor = .clear
 
@@ -469,7 +315,7 @@ final class HayaseSidebarController: UIViewController {
         ])
     }
 
-    private func setupMobileSidebar() {
+    func setupMobileSidebar() {
         mobileLauncher.translatesAutoresizingMaskIntoConstraints = false
         mobileLauncher.backgroundColor = UIColor.HayaseTheme.background
         mobileLauncher.layer.cornerRadius = 6
@@ -518,14 +364,14 @@ final class HayaseSidebarController: UIViewController {
         view.addGestureRecognizer(outsideTap)
     }
 
-    private func observeBannerBackdrop() {
+    func observeBannerBackdrop() {
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(homeBannerBackdropDidChange(_:)),
                                                name: Self.homeBannerBackdropDidChange,
                                                object: nil)
     }
 
-    @objc private func homeBannerBackdropDidChange(_ notification: Notification) {
+    @objc func homeBannerBackdropDidChange(_ notification: Notification) {
         let userInfo = notification.userInfo ?? [:]
 
         // The page banner is route-owned, as `$page.route` gates banner-image.svelte. Ignore late
@@ -602,14 +448,14 @@ final class HayaseSidebarController: UIViewController {
         sidebarBackdropTask?.resume()
     }
 
-    private func applySidebarBackdropScrollOffset(_ scrollOffset: CGFloat) {
+    func applySidebarBackdropScrollOffset(_ scrollOffset: CGFloat) {
         // Interface mounts the sidebar BannerImage at absolute top-left too.
         // The 56pt rail clips the full-width image; it never scroll-translates.
         sidebarBackdropImageView.transform = .identity
         sidebarBackdropGradientView.transform = .identity
     }
 
-    private func transitionSidebarBackdrop(to alpha: CGFloat) {
+    func transitionSidebarBackdrop(to alpha: CGFloat) {
         guard abs(alpha - sidebarBackdropAlpha) > 0.01 else { return }
 
         sidebarBackdropAlpha = alpha
@@ -635,7 +481,7 @@ final class HayaseSidebarController: UIViewController {
     }
 
     /// Drops the banner image, and the load in flight for it, but not the fade state.
-    private func flushSidebarBackdropImage() {
+    func flushSidebarBackdropImage() {
         sidebarBackdropTask?.cancel()
         sidebarBackdropTask = nil
         sidebarBackdropURL = nil
@@ -647,7 +493,7 @@ final class HayaseSidebarController: UIViewController {
     /// `bannerSrc.value = null`. `hideBanner` goes back to false, as a page sets it when it
     /// mounts, so the next banner shows in full unless its page says otherwise; leaving the
     /// alpha at zero showed a black rail whenever that page did not send one.
-    private func clearSidebarBackdrop() {
+    func clearSidebarBackdrop() {
         flushSidebarBackdropImage()
         sidebarBackdropMediaID = nil
         sidebarBackdropAlpha = 1
@@ -662,7 +508,7 @@ final class HayaseSidebarController: UIViewController {
         updateSidebarBackground()
     }
 
-    private func configureActions() {
+    func configureActions() {
         let handler: (HayaseSidebarRoute) -> Void = { [weak self] route in
             self?.handle(route)
         }
@@ -670,7 +516,7 @@ final class HayaseSidebarController: UIViewController {
         mobileSidebarList.configure(actionHandler: handler)
     }
 
-    private func observeRouteChanges() {
+    func observeRouteChanges() {
         routeObservationID = router.observe { [weak self] route, kind, options in
             DispatchQueue.main.async {
                 self?.apply(route: route, kind: kind, options: options, animated: true)
@@ -694,27 +540,15 @@ final class HayaseSidebarController: UIViewController {
                                                object: nil)
     }
 
-    @objc private func animeNavigationWillLoad() {
+    @objc func animeNavigationWillLoad() {
         beginNavigationProgress()
     }
 
-    @objc private func animeNavigationDidFail() {
+    @objc func animeNavigationDidFail() {
         finishNavigationProgress()
     }
 
-    private func beginNavigationProgress() {
-        guard !isNavigationLoading else { return }
-        isNavigationLoading = true
-        progressWindow?.bar.navigationWillBegin()
-    }
-
-    private func finishNavigationProgress() {
-        isNavigationLoading = false
-        progressWindow?.bar.navigationDidFinish()
-        endHistorySwipe()
-    }
-
-    private func handle(_ route: HayaseSidebarRoute) {
+    func handle(_ route: HayaseSidebarRoute) {
         if route == .donate {
             closeMobileMenu()
             if let url = URL(string: route.href) {
@@ -727,7 +561,7 @@ final class HayaseSidebarController: UIViewController {
         router.navigate(appRoute)
     }
 
-    private func apply(route: Route, kind: Router.NavigationKind, options: Router.NavigationOptions, animated: Bool) {
+    func apply(route: Route, kind: Router.NavigationKind, options: Router.NavigationOptions, animated: Bool) {
         // Router notifications are delivered on the next main-queue turn.
         // Ignore an older queued destination if a redirect or a second sidebar
         // selection has already replaced it.
@@ -755,7 +589,7 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
-    private struct RouteLoadPayload {
+    struct RouteLoadPayload {
         var anime: AnimeItem?
         var thread: AniListThread?
         /// A load that failed: the route shows the error page instead of its page.
@@ -763,7 +597,7 @@ final class HayaseSidebarController: UIViewController {
     }
 
     /// Nested SvelteKit layouts load concurrently. Keep the old route visible until all route-level data is ready.
-    private func loadRoute(_ route: Route, completion: @escaping (RouteLoadPayload) -> Void) {
+    func loadRoute(_ route: Route, completion: @escaping (RouteLoadPayload) -> Void) {
         var payload = RouteLoadPayload(anime: nil, thread: nil)
         var pending = 0
         var failed = false
@@ -826,7 +660,7 @@ final class HayaseSidebarController: UIViewController {
         if pending == 0 { completion(payload) }
     }
 
-    private func commit(route: Route,
+    func commit(route: Route,
                         kind: Router.NavigationKind,
                         options: Router.NavigationOptions,
                         animated: Bool,
@@ -919,7 +753,7 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
-    private func visiblePlayerForRouteExit() -> VideoPlayerViewController? {
+    func visiblePlayerForRouteExit() -> VideoPlayerViewController? {
         if let player = topVisibleHostedController() as? VideoPlayerViewController {
             return player
         }
@@ -929,35 +763,7 @@ final class HayaseSidebarController: UIViewController {
         return player
     }
 
-    private func usesViewTransition(for route: Route, kind: Router.NavigationKind, animated: Bool) -> Bool {
-        // iOS runs its own back/forward animation, and entering the mobile player skips it.
-        // SvelteKit still runs onNavigate for goto(..., { replaceState: true }).
-        guard animated, (kind == .push || kind == .replace) else { return false }
-        // supports.ts includes BOTH iPhone and iPad in isMobile.
-        if route == .player, UIDevice.current.userInterfaceIdiom == .phone || UIDevice.current.userInterfaceIdiom == .pad { return false }
-        guard let player = visiblePlayerForRouteExit() else { return true }
-        // Root +layout.svelte skips startViewTransition whenever fullscreenElement is set.
-        // Phones force the player fullscreen; iPad can enter the same state manually.
-        return UIDevice.current.userInterfaceIdiom != .phone && !player.isFullscreenForRouteNavigation
-    }
-
-    private func saveScrollPositionBeforeRouteChange(to route: Route) {
-        guard let previousRoute = lastAppliedRoute, previousRoute != route,
-              let offset = RouteScrollRestoration.capture(from: topVisibleHostedController()) else { return }
-        routeScrollPositions[previousRoute] = offset
-    }
-
-    private func restoreScrollPositionIfNeeded(for route: Route, kind: Router.NavigationKind, noScroll: Bool) {
-        switch kind {
-        case .back, .forward:
-            RouteScrollRestoration.restore(routeScrollPositions[route], in: topVisibleHostedController())
-        case .push, .replace, .sync:
-            guard !noScroll else { return }
-            RouteScrollRestoration.scrollToTop(in: topVisibleHostedController())
-        }
-    }
-
-    private func applyRouteState(_ route: Route, to navigationController: UINavigationController) {
+    func applyRouteState(_ route: Route, to navigationController: UINavigationController) {
         switch route {
         case .search(let state):
             (navigationController.viewControllers.first as? SearchViewController)?.applyRouteState(state)
@@ -974,7 +780,7 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
-    private func showAnimeRoute(id: Int,
+    func showAnimeRoute(id: Int,
                                 threadID: Int?,
                                 kind: Router.NavigationKind,
                                 preloaded: AnimeItem?,
@@ -1007,7 +813,7 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
-    private func animeID(for route: Route) -> Int? {
+    func animeID(for route: Route) -> Int? {
         switch route {
         case .anime(let id): return id
         case .animeThread(let animeID, _): return animeID
@@ -1015,14 +821,14 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
-    private func animeRouteNeedsLoad(_ id: Int, route: Route) -> Bool {
+    func animeRouteNeedsLoad(_ id: Int, route: Route) -> Bool {
         if router.takeLoadedAnimeRoute(id) { return false }
         guard let nav = hostNavigationController(for: route) else { return false }
         let detail = nav.viewControllers.compactMap { $0 as? AnimeDetailViewController }.last
         return detail?.routeAnimeID != id
     }
 
-    private func hostNavigationController(for route: Route) -> UINavigationController? {
+    func hostNavigationController(for route: Route) -> UINavigationController? {
         guard let index = route.tabIndex ?? router.currentHostTabIndex else {
             return tabHost.selectedViewController as? UINavigationController
         }
@@ -1030,7 +836,7 @@ final class HayaseSidebarController: UIViewController {
         return routeControllers[index] as? UINavigationController
     }
 
-    private func isCurrentAnimeRoute(_ id: Int) -> Bool {
+    func isCurrentAnimeRoute(_ id: Int) -> Bool {
         switch router.currentRoute {
         case .anime(let currentID), .animeThread(let currentID, _):
             return currentID == id
@@ -1039,7 +845,7 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
-    private func pushAnimeDetail(item: AnimeItem,
+    func pushAnimeDetail(item: AnimeItem,
                                  threadID: Int?,
                                  in navigationController: UINavigationController,
                                  animated: Bool) {
@@ -1055,26 +861,26 @@ final class HayaseSidebarController: UIViewController {
     }
 
     /// `routes/app/+error.svelte`: the page of a route whose load failed.
-    private func showErrorPage(_ error: Router.RouteError, for route: Route, animated: Bool) {
+    func showErrorPage(_ error: Router.RouteError, for route: Route, animated: Bool) {
         guard let nav = hostNavigationController(for: route) else { return }
         nav.pushViewController(ErrorPageViewController(status: error.status, message: error.message), animated: animated)
     }
 
     /// `routes/app/debug/+page.svelte`
-    private func showDebugRoute(animated: Bool) {
+    func showDebugRoute(animated: Bool) {
         guard let nav = hostNavigationController(for: .debug) else { return }
         if nav.topViewController is HayaseDebugViewController { return }
         nav.pushViewController(HayaseDebugViewController(), animated: animated)
     }
 
     /// `routes/app/license/+page.svelte`
-    private func showLicenseRoute(animated: Bool) {
+    func showLicenseRoute(animated: Bool) {
         guard let nav = hostNavigationController(for: .license) else { return }
         if nav.topViewController is LicensePageViewController { return }
         nav.pushViewController(LicensePageViewController(), animated: animated)
     }
 
-    private func showPlayerRoute(animated: Bool) {
+    func showPlayerRoute(animated: Bool) {
         guard let player = router.cachedPlayer() else {
             MiniPlayerManager.shared.restore()
             return
@@ -1100,13 +906,13 @@ final class HayaseSidebarController: UIViewController {
         presenter.presentHayasePlayer(player, animated: false)
     }
 
-    private func updateSelection(for route: Route, animated: Bool) {
+    func updateSelection(for route: Route, animated: Bool) {
         sidebarList.setSelectedRoute(route, animated: animated)
         mobileSidebarList.setSelectedRoute(route, animated: animated)
         updateSidebarBackground()
     }
 
-    private func updateLayoutForCurrentWidth() {
+    func updateLayoutForCurrentWidth() {
         hideNativeTabNavigation()
         let isDesktop = view.bounds.width >= 768  // Tailwind md = 48rem = 768px
         let modeChanged = isDesktopMode != isDesktop
@@ -1135,14 +941,14 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
-    private func applyPlayerShellChrome(isDesktop: Bool) {
+    func applyPlayerShellChrome(isDesktop: Bool) {
         let hidesShellChrome = playerFullscreenActive
         sidebarList.superview?.isHidden = !isDesktop || hidesShellChrome
         mobileLauncher.isHidden = isDesktop || hidesShellChrome
         sidebarWidthConstraint?.constant = isDesktop && !hidesShellChrome ? 56 : 0
     }
 
-    private func responsiveIndexRedirect(for route: Route) -> Route? {
+    func responsiveIndexRedirect(for route: Route) -> Route? {
         guard view.bounds.width >= 768 else { return nil }  // Tailwind md = 48rem = 768px
         switch route {
         case .client(.root):
@@ -1154,7 +960,7 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
-    private func updateSidebarBackground() {
+    func updateSidebarBackground() {
         let isBannerRoute = visibleBannerBackdropRoute() != nil
         let hasBackdrop = sidebarBackdropImageView.image != nil || sidebarBackdropURL != nil
         let showsBannerBackdrop = isBannerRoute && hasBackdrop
@@ -1171,7 +977,7 @@ final class HayaseSidebarController: UIViewController {
     }
 
     /// The banner route the router is on, if any: the interface's `$page.route` test.
-    private var currentBannerRoute: String? {
+    var currentBannerRoute: String? {
         switch router.currentRoute {
         case .home: return Self.homeBannerBackdropHomeRoute
         case .anime, .animeThread: return Self.homeBannerBackdropAnimeRoute
@@ -1179,18 +985,18 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
-    private func visibleBannerBackdropRoute() -> String? {
+    func visibleBannerBackdropRoute() -> String? {
         let topController = topVisibleHostedController()
         if topController is HomeViewController { return Self.homeBannerBackdropHomeRoute }
         if topController is AnimeDetailViewController { return Self.homeBannerBackdropAnimeRoute }
         return nil
     }
 
-    private func topVisibleHostedController() -> UIViewController? {
+    func topVisibleHostedController() -> UIViewController? {
         topVisibleController(from: tabHost.selectedViewController)
     }
 
-    private func topVisibleController(from controller: UIViewController?) -> UIViewController? {
+    func topVisibleController(from controller: UIViewController?) -> UIViewController? {
         guard let controller else { return nil }
         if let presented = controller.presentedViewController, !presented.isBeingDismissed {
             return topVisibleController(from: presented)
@@ -1201,7 +1007,7 @@ final class HayaseSidebarController: UIViewController {
         return controller
     }
 
-    private func toggleMobileMenu() {
+    func toggleMobileMenu() {
         isMobileMenuOpen.toggle()
         mobileLauncherWidthConstraint?.constant = isMobileMenuOpen ? 176 : 64
         mobileLauncherHeightConstraint?.constant = isMobileMenuOpen ? 176 : 64
@@ -1214,7 +1020,7 @@ final class HayaseSidebarController: UIViewController {
         }.startAnimation()
     }
 
-    private func closeMobileMenu(animated: Bool = true) {
+    func closeMobileMenu(animated: Bool = true) {
         guard isMobileMenuOpen else { return }
         isMobileMenuOpen = false
         mobileLauncherWidthConstraint?.constant = 64
@@ -1231,7 +1037,7 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
-    @objc private func handleOutsideTap(_ gesture: UITapGestureRecognizer) {
+    @objc func handleOutsideTap(_ gesture: UITapGestureRecognizer) {
         guard isMobileMenuOpen else { return }
         let point = gesture.location(in: view)
         if !mobileLauncher.frame.contains(point) {
@@ -1302,7 +1108,7 @@ extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecogniz
         gestureRecognizer is UIPanGestureRecognizer
     }
 
-    private var isCurrentRouteOwnedByRouter: Bool {
+    var isCurrentRouteOwnedByRouter: Bool {
         switch router.currentRoute {
         case .anime, .animeThread, .player, .license, .debug:
             return true
@@ -1312,33 +1118,3 @@ extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecogniz
     }
 }
 
-extension HayaseSidebarController: UIDropInteractionDelegate {
-    func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
-        session.canLoadObjects(ofClass: UIImage.self)
-            || session.canLoadObjects(ofClass: URL.self)
-            || session.canLoadObjects(ofClass: NSString.self)
-    }
-
-    func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
-        UIDropProposal(operation: .copy)
-    }
-
-    func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
-        if session.canLoadObjects(ofClass: UIImage.self) {
-            _ = session.loadObjects(ofClass: UIImage.self) { [weak self] (objects: [NSItemProviderReading]) in
-                guard let image = objects.first as? UIImage else { return }
-                DispatchQueue.main.async { self?.handleTransferred(image: image) }
-            }
-        } else if session.canLoadObjects(ofClass: NSString.self) {
-            _ = session.loadObjects(ofClass: NSString.self) { [weak self] (objects: [NSItemProviderReading]) in
-                guard let text = objects.first as? String else { return }
-                DispatchQueue.main.async { self?.handleTransferred(text: text) }
-            }
-        } else {
-            _ = session.loadObjects(ofClass: URL.self) { [weak self] urls in
-                guard let url = urls.first else { return }
-                DispatchQueue.main.async { self?.handleTransferred(text: url.absoluteString) }
-            }
-        }
-    }
-}
