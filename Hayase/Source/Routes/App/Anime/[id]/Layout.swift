@@ -29,54 +29,6 @@ private let hayaseAnimeBannerBackdropAnimeRoute = "anime"
 // MARK: - AnimeDetailBannerBackdropView
 
 private final class AnimeDetailBannerBackdropView: UIView {
-    private final class GradientView: UIView {
-        private var centerX: CGFloat = 0.5918
-
-        override init(frame: CGRect) {
-            super.init(frame: frame)
-            backgroundColor = .clear
-            isOpaque = false
-        }
-
-        required init?(coder: NSCoder) {
-            super.init(coder: coder)
-            backgroundColor = .clear
-            isOpaque = false
-        }
-
-        func setCompact(_ compact: Bool) {
-            let nextCenterX: CGFloat = compact ? 0.50 : 0.5918
-            guard abs(nextCenterX - centerX) > 0.0001 else { return }
-            centerX = nextCenterX
-            setNeedsDisplay()
-        }
-
-        override func draw(_ rect: CGRect) {
-            guard bounds.width > 0, bounds.height > 0,
-                  let context = UIGraphicsGetCurrentContext(),
-                  let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                                            colors: [
-                                                UIColor.black.withAlphaComponent(0.16).cgColor,
-                                                UIColor.black.withAlphaComponent(0.16).cgColor,
-                                                UIColor.black.cgColor,
-                                            ] as CFArray,
-                                            locations: [0.0, 0.3056, 1.0]) else { return }
-
-            let center = CGPoint(x: bounds.width * centerX, y: bounds.height * 0.3497)
-            context.saveGState()
-            context.clip(to: bounds)
-            context.translateBy(x: center.x, y: center.y)
-            context.scaleBy(x: bounds.width * 0.75, y: bounds.height * 0.65)
-            context.drawRadialGradient(gradient,
-                                       startCenter: .zero,
-                                       startRadius: 0,
-                                       endCenter: .zero,
-                                       endRadius: 1,
-                                       options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-            context.restoreGState()
-        }
-    }
-
     private let imageView: UIImageView = {
         let view = UIImageView()
         view.contentMode = .scaleAspectFill
@@ -84,7 +36,7 @@ private final class AnimeDetailBannerBackdropView: UIView {
         view.backgroundColor = .clear
         return view
     }()
-    private let gradientView = GradientView()
+    private let gradientView = BannerGradientView()
     private var currentURLString: String?
     /// The address the page asked for, which is not the one loading while a thumbnail is retried.
     private var requestedURLString: String?
