@@ -4,15 +4,25 @@ import CoreImage
 
 /// Blurs the content itself without the tint or saturation of a system backdrop.
 /// Radius is in logical points, just as CSS pixels scale with the interface zoom.
+///
+/// The content is drawn into an image and blurred once the layout pass that sized it is over: drawing it from
+/// `layoutSubviews`, with `layoutIfNeeded` on the content, laid its ancestors out inside their own pass, which
+/// left a card that was made while it had a blur (and the rating badge under the title) without its content.
 final class HayaseContentBlurView: UIView {
     let contentView: UIView
     var radius: CGFloat = 0 { didSet { invalidateBlur() } }
     private let renderedView = UIImageView()
     private static let context = CIContext(options: nil)
+    /// The first blur of a session sets Core Image up, which takes long enough to be felt in a scroll.
+    private static let warmUp: Void = {
+        DispatchQueue.global(qos: .userInitiated).async { _ = HayaseContentBlurView.context }
+    }()
     private var renderedSize = CGSize.zero
     private var needsRender = true
+    private var renderScheduled = false
 
     init(content: UIView) {
+        _ = Self.warmUp
         contentView = content
         super.init(frame: .zero)
         content.translatesAutoresizingMaskIntoConstraints = false
@@ -39,11 +49,29 @@ final class HayaseContentBlurView: UIView {
         // Never briefly expose unblurred spoilers while waiting for layout.
         contentView.isHidden = radius > 0
         renderedView.isHidden = radius <= 0
+        if radius <= 0 {
+            renderedView.image = nil
+            renderedSize = .zero
+        }
         setNeedsLayout()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        guard radius > 0, bounds.width > 0, bounds.height > 0 else { return }
+        guard needsRender || renderedSize != bounds.size else { return }
+        guard !renderScheduled else { return }
+        renderScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.renderScheduled = false
+            self.renderBlurIfNeeded()
+        }
+    }
+
+    /// Draws and blurs the content now, for a change that has to show in the same animation as the content.
+    /// Never from inside a layout pass.
+    func renderBlurIfNeeded() {
         guard radius > 0, bounds.width > 0, bounds.height > 0 else { return }
         guard needsRender || renderedSize != bounds.size else { return }
         needsRender = false

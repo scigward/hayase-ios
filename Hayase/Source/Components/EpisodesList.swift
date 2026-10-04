@@ -109,7 +109,6 @@ private final class EpisodeRatingBadgeView: UIView {
 
     func configure(ratingText: String) {
         label.text = ratingText
-        isHidden = false
     }
 }
 
@@ -422,7 +421,12 @@ final class EpisodeCardView: SelectableCardView {
         let setImage = {
             self.thumbImageView.image = image
             self.thumbnail.invalidateBlur()
-            self.thumbnail.layoutIfNeeded()
+            // inside the fade the blur is drawn at once; in `configure`, in the middle of the table's own layout,
+            // it waits for the pass to be over
+            if animated {
+                self.thumbnail.layoutIfNeeded()
+                self.thumbnail.renderBlurIfNeeded()
+            }
         }
         if animated {
             UIView.transition(with: thumbnail, duration: 0.2,
