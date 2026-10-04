@@ -601,7 +601,7 @@ class DownloadsViewController: UIViewController {
 
     func updateTabButtonAppearance(_ btn: UIButton) {
         let medium = viewportWidth >= 768  // bg-muted md:bg-transparent
-        btn.backgroundColor = medium ? .clear : TorrentClientStyle.muted
+        (btn as? HayaseNavTabButton)?.baseBackground = medium ? .clear : TorrentClientStyle.muted
     }
 
     func updateTabButtonAppearances() {

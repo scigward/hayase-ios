@@ -196,11 +196,11 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     let seekBar       = SegmentedSeekBar()
 
     // Bottom bar — controls row
-    let prevButton      = UIButton(type: .system)
-    let playPauseButton = UIButton(type: .system)
-    let nextButton      = UIButton(type: .system)
+    let prevButton      = SelectButton(frame: .zero)
+    let playPauseButton = SelectButton(frame: .zero)
+    let nextButton      = SelectButton(frame: .zero)
     let speedLabel      = UILabel()
-    let optionsButton   = UIButton(type: .system)
+    let optionsButton   = SelectButton(frame: .zero)
     let airPlayPicker   = AVRoutePickerView()
     // Mirrors: hayase-app/interface/src/lib/components/ui/player/castplayer.svelte
     // (non-miniplayer branch; VideoPlayerViewController is always the full
@@ -920,9 +920,11 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
 
         // --- Row 3: Controls ---
         // Left side: play/pause, prev, next
+        // `<Button class='p-3 size-12' variant='ghost'>`: select:bg-secondary-foreground/20 select:text-accent-foreground
         [prevButton, playPauseButton, nextButton, optionsButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
-            $0.tintColor = .white
+            $0.applyGhostVariant()
+            $0.dimsWhenDisabled = true
         }
         prevButton.setImage(UIImage.hayaseFilledIcon("skip-back"), for: .normal)
         playPauseButton.setImage(UIImage.hayaseFilledIcon("pause"), for: .normal)

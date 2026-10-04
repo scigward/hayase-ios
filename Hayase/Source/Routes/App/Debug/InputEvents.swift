@@ -10,6 +10,7 @@
 //
 
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 final class DebugInputEvents: NSObject, UIGestureRecognizerDelegate {
     /// One entry of `events`

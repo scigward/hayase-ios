@@ -2,37 +2,23 @@
 //  GhostButton.swift
 //  Hayase
 //
-//  UIKit counterpart for the matching interface component.
+//  Mirrors: src/lib/components/ui/button/index.ts, `variant='ghost'` with the shared base: transparent,
+//  `select:bg-secondary-foreground/20 select:text-accent-foreground` (hover, focus-visible or active, with the
+//  150ms of `transition-colors`), `rounded-md` and `disabled:opacity-50`. It is a `SelectButton`, so the press
+//  scale of app.css and the D-pad's focus are the same as every other button.
 //
-
-// Mirrors: hayase-app/interface/src/lib/components/ui/button/index.ts
-// (`ghost` variant + shared base). base: rounded-md text-sm font-medium
-// disabled:opacity-50. ghost: bg-transparent, select:bg-secondary-foreground/20
-// (the only ghost-specific state — iOS has no hover, so "select" maps to
-// isHighlighted).
 
 import UIKit
 
-final class GhostButton: UIButton {
+final class GhostButton: SelectButton {
     override init(frame: CGRect) {
         super.init(frame: frame)
-        layer.cornerRadius = 6   // rounded-md
+        applyGhostVariant()
+        dimsWhenDisabled = true   // disabled:opacity-50
         clipsToBounds = true
     }
 
     required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        layer.cornerRadius = 6
-        clipsToBounds = true
-    }
-
-    override var isHighlighted: Bool {
-        didSet {
-            backgroundColor = isHighlighted ? UIColor.HayaseTheme.secondaryForeground.withAlphaComponent(0.2) : .clear
-        }
-    }
-
-    override var isEnabled: Bool {
-        didSet { alpha = isEnabled ? 1 : 0.5 }   // disabled:opacity-50
+        nil
     }
 }

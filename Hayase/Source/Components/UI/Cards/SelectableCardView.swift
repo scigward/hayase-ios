@@ -11,12 +11,17 @@ import UIKit
 /// The interface's card `select:` state, shared by the anime page's episode and
 /// thread cards. tailwind.config.ts defines `select` as hover, focus-visible or
 /// active: a touch is active while it is down, and an iPad pointer is hover.
-class SelectableCardView: UIView, UIGestureRecognizerDelegate, ActiveElementObserver {
+///
+/// While it is pressed it is `:active`, and app.css scales an `:active` element to 0.98 (`transition: all 0.1s
+/// ease-in-out`), which wins over `select:scale-[1.05]`: so a card grows when the pointer or the D-pad is on it
+/// and shrinks while it is pressed.
+class SelectableCardView: UIView, UIGestureRecognizerDelegate, ActiveElementObserver, NoActiveScale {
     private let restingBackground: UIColor
     private let selectedBackground: UIColor
     private var isPressed = false
     private var isHovered = false
     private var appliedSelected = false
+    private var appliedPressed = false
 
     /// z-position while not selected; a selected card draws above its neighbours.
     var restingZPosition: CGFloat = 0 {
@@ -48,7 +53,11 @@ class SelectableCardView: UIView, UIGestureRecognizerDelegate, ActiveElementObse
     /// Selected-state changes that the card's transition animates. Subclasses add
     /// their `group-select:` changes and call super.
     func applySelectState(_ selected: Bool) {
-        transform = selected ? CGAffineTransform(scaleX: 1.05, y: 1.05) : .identity
+        if appliedPressed {
+            transform = CGAffineTransform(scaleX: ActiveScale.scale, y: ActiveScale.scale)
+        } else {
+            transform = selected ? CGAffineTransform(scaleX: 1.05, y: 1.05) : .identity
+        }
         layer.shadowRadius = selected ? 18 : 0
         layer.shadowOpacity = selected ? 0.45 : 0
         layer.shadowOffset = selected ? CGSize(width: 0, height: 8) : .zero
@@ -89,8 +98,9 @@ class SelectableCardView: UIView, UIGestureRecognizerDelegate, ActiveElementObse
 
     private func updateSelectState(animated: Bool, force: Bool = false) {
         let selected = isPressed || isHovered || isActiveElement
-        guard force || selected != appliedSelected else { return }
+        guard force || selected != appliedSelected || isPressed != appliedPressed else { return }
         appliedSelected = selected
+        appliedPressed = isPressed
         // bg-accent is outside the transition list, so it switches immediately.
         backgroundColor = selected ? selectedBackground : restingBackground
         layer.zPosition = selected ? 2 : restingZPosition
@@ -98,8 +108,9 @@ class SelectableCardView: UIView, UIGestureRecognizerDelegate, ActiveElementObse
             applySelectState(selected)
             return
         }
-        UIView.animate(withDuration: 0.2, delay: 0,
-                       options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
+        // `:active` brings `transition: all 0.1s ease-in-out` with it; out of it the card's own 200ms ease-out
+        UIView.animate(withDuration: isPressed ? 0.1 : 0.2, delay: 0,
+                       options: [isPressed ? .curveEaseInOut : .curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
             self.applySelectState(selected)
         }
     }

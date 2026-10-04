@@ -2,44 +2,22 @@
 //  DestructiveButton.swift
 //  Hayase
 //
-//  UIKit counterpart for the matching interface component.
+//  Mirrors: src/lib/components/ui/button/index.ts, `variant='destructive'` with the shared base:
+//  `bg-destructive text-destructive-foreground select:bg-destructive/90 shadow-sm` (hover, focus-visible or
+//  active, with the 150ms of `transition-colors`), `rounded-md` and `disabled:opacity-50`. It is a `SelectButton`,
+//  so the press scale of app.css and the D-pad's focus are the same as every other button.
 //
-
-// Mirrors: hayase-app/interface/src/lib/components/ui/button/index.ts
-// (`destructive` variant + shared base). base: rounded-md disabled:opacity-50.
-// destructive: bg-destructive text-destructive-foreground shadow-sm,
-// select:bg-destructive/90 (iOS: isHighlighted).
 
 import UIKit
 
-final class DestructiveButton: UIButton {
+final class DestructiveButton: SelectButton {
     override init(frame: CGRect) {
         super.init(frame: frame)
-        setup()
+        applyDestructiveVariant()
+        dimsWhenDisabled = true   // disabled:opacity-50
     }
 
     required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setup()
-    }
-
-    private func setup() {
-        backgroundColor = UIColor.HayaseTheme.destructive
-        tintColor = UIColor.HayaseTheme.destructiveForeground
-        layer.cornerRadius = 6   // rounded-md
-        layer.shadowColor = UIColor.black.cgColor   // shadow-sm
-        layer.shadowOpacity = 0.05
-        layer.shadowRadius = 1
-        layer.shadowOffset = CGSize(width: 0, height: 1)
-    }
-
-    override var isHighlighted: Bool {
-        didSet {
-            backgroundColor = UIColor.HayaseTheme.destructive.withAlphaComponent(isHighlighted ? 0.9 : 1)
-        }
-    }
-
-    override var isEnabled: Bool {
-        didSet { alpha = isEnabled ? 1 : 0.5 }   // disabled:opacity-50
+        nil
     }
 }

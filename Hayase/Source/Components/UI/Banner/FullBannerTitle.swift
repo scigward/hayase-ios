@@ -16,7 +16,7 @@
 
 import UIKit
 
-final class FullBannerTitleLink: UIControl {
+final class FullBannerTitleLink: UIControl, NoActiveScale {
     /// `w-[900px]`
     static let maxWidth: CGFloat = 900
     /// `max-w-[85%]`

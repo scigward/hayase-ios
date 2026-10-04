@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class Input: UITextField {
+final class Input: UITextField, NoActiveScale {
     private let iconName: String?
     private var iconImageView: UIImageView?
     private var isPointerOver = false

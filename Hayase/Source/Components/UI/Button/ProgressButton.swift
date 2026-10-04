@@ -3,16 +3,17 @@
 //  Hayase
 //
 //  Mirrors: src/lib/components/ui/button/progress-button.svelte: a button that fills while it counts down to its
-//  action, which is taken when the fill ends or when the button is pressed.
+//  action, which is taken when the fill ends or when the button is pressed. It is a `Button` (`variant='default'`,
+//  `size='default'`, `font-bold`, `px-7`), so it has the colours of `select:`, the press scale of app.css and the
+//  D-pad's focus like every other button; `overflow-hidden` clips the fill, not the shadow.
 //
 
 import UIKit
-import AVKit
-import CoreMedia
-import UniformTypeIdentifiers
 
-final class InterfaceProgressButton: UIControl {
-    private let label = UILabel()
+final class InterfaceProgressButton: SelectButton {
+    /// `overflow-hidden`: what clips the fill
+    private let clip = UIView()
+    /// `absolute inset-0 bg-background/20 pointer-events-none translate-x-full`
     private let progressView = UIView()
     private var pendingCompletion = false
     var isAnimatingProgress: Bool { pendingCompletion }
@@ -20,52 +21,47 @@ final class InterfaceProgressButton: UIControl {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = UIColor.HayaseTheme.primary
-        layer.cornerRadius = 6
-        clipsToBounds = true
+        applyPrimaryVariant()
+        titleLabel?.font = .nunito(ofSize: 14, weight: .bold)
+        contentEdgeInsets = UIEdgeInsets(top: 0, left: 28, bottom: 0, right: 28)   // px-7
 
-        label.font = .nunito(ofSize: 14, weight: .bold)
-        label.textColor = UIColor.HayaseTheme.primaryForeground
-        label.textAlignment = .center
-        label.isUserInteractionEnabled = false
-        label.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(label)
-
+        clip.clipsToBounds = true
+        clip.layer.cornerRadius = layer.cornerRadius
+        clip.isUserInteractionEnabled = false
+        clip.translatesAutoresizingMaskIntoConstraints = false
         progressView.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.2)
         progressView.isUserInteractionEnabled = false
         progressView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(progressView)
+        clip.addSubview(progressView)
+        // after the text, as in the page: the fill is over it
+        addSubview(clip)
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 36),
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 28),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            progressView.topAnchor.constraint(equalTo: topAnchor),
-            progressView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            progressView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            progressView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            clip.topAnchor.constraint(equalTo: topAnchor),
+            clip.leadingAnchor.constraint(equalTo: leadingAnchor),
+            clip.trailingAnchor.constraint(equalTo: trailingAnchor),
+            clip.bottomAnchor.constraint(equalTo: bottomAnchor),
+            progressView.topAnchor.constraint(equalTo: clip.topAnchor),
+            progressView.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
+            progressView.trailingAnchor.constraint(equalTo: clip.trailingAnchor),
+            progressView.bottomAnchor.constraint(equalTo: clip.bottomAnchor),
         ])
-        sendSubviewToBack(progressView)
         addTarget(self, action: #selector(triggerNow), for: .touchUpInside)
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { nil }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        bringSubviewToFront(clip)
         if !pendingCompletion {
             progressView.transform = CGAffineTransform(translationX: bounds.width, y: 0)
         }
     }
 
-    override var intrinsicContentSize: CGSize {
-        let labelSize = label.intrinsicContentSize
-        return CGSize(width: labelSize.width + 56, height: 36)
-    }
-
     func setTitle(_ title: String) {
-        label.text = title
+        setTitle(title, for: .normal)
         invalidateIntrinsicContentSize()
     }
 
@@ -96,4 +92,3 @@ final class InterfaceProgressButton: UIControl {
         onTrigger?()
     }
 }
-

@@ -144,14 +144,17 @@ final class ThreadPaginationView: UIView {
     }
 
     private func pageButton(title: String, selected: Bool) -> UIButton {
-        let button = UIButton(type: .system)
+        let button = SelectButton(type: .system)
         button.setTitle(title, for: .normal)
-        button.titleLabel?.font = .nunito(ofSize: 14)
-        button.setTitleColor(UIColor.HayaseTheme.foreground, for: .normal)
-        button.backgroundColor = selected ? UIColor.HayaseTheme.muted : .clear
-        button.layer.cornerRadius = 6
-        button.layer.borderWidth = selected ? 1 : 0
-        button.layer.borderColor = UIColor.HayaseTheme.border.cgColor
+        button.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)   // text-sm font-medium
+        if selected {
+            // variant='outline': border-input bg-muted select:bg-accent select:text-accent-foreground border shadow-sm
+            button.applyOutlineVariant()
+            button.layer.borderWidth = 1
+            button.layer.borderColor = UIColor.HayaseTheme.input.cgColor
+        } else {
+            button.applyGhostVariant()
+        }
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             button.widthAnchor.constraint(equalToConstant: 36),

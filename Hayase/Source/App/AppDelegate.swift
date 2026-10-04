@@ -19,6 +19,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         window?.overrideUserInterfaceStyle = .dark
         UIScrollView.installInstantTouches()
         if let window { Navigate.observePointer(in: window) }   // `inputType`
+        if let window { ActiveScale.install(in: window) }       // app.css `:active { transform: scale(0.98) }`
         HardwareKeys.start()
         Gamepad.shared.start()
         AniListRefocus.shared.start()

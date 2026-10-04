@@ -702,7 +702,7 @@ final class HomeSectionHeaderView: UICollectionReusableView {
 
 /// A text with `select:text-foreground`: muted until it is hovered or pressed. Like every element
 /// that can be focused, it also shrinks to 98% while it is pressed.
-private final class HeaderTextControl: UIControl {
+private final class HeaderTextControl: UIControl, NoActiveScale {
     private let label = UILabel()
     private let font: UIFont
     private let lineHeight: CGFloat

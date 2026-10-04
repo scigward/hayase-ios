@@ -100,7 +100,7 @@ final class SettingsNavigationView: UIView {
             if apply {
                 button.frame = CGRect(x: x, y: y, width: buttonWidth, height: buttonHeight)
                 button.contentEdgeInsets = UIEdgeInsets(top: 0, left: medium ? 16 : 32, bottom: 0, right: medium ? 16 : 32)
-                button.backgroundColor = medium ? .clear : UIColor.HayaseTheme.muted
+                button.baseBackground = medium ? .clear : UIColor.HayaseTheme.muted
             }
             if horizontal { x += buttonWidth + 8 } else { y += buttonHeight + 4 }
         }
@@ -137,9 +137,17 @@ final class SettingsNavigationView: UIView {
 
 // MARK: - HayaseNavTabButton
 
-final class HayaseNavTabButton: UIButton {
+/// A `Button` of the settings navigation: `variant={isActive ? 'default' : 'ghost'}` with `bg-muted md:bg-transparent`.
+/// The ghost one gets `select:bg-secondary-foreground/20 select:text-accent-foreground` while it is hovered, focused or
+/// pressed; the one of the open page has the pill (`bg-primary`) over its own background, so only its text stays put.
+/// Being a `SelectButton` it also has the 0.98 of `:active` and the 150ms of `transition-colors`.
+final class HayaseNavTabButton: SelectButton {
     private let pill = UIView()
     private(set) var isCurrentTab = false
+    /// `bg-muted md:bg-transparent`
+    var baseBackground: UIColor = .clear {
+        didSet { applyVariant() }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -155,23 +163,25 @@ final class HayaseNavTabButton: UIButton {
             pill.trailingAnchor.constraint(equalTo: trailingAnchor),
             pill.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        setTitleColor(UIColor.HayaseTheme.foreground, for: .normal)
+        applyVariant()
     }
 
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        nil
     }
 
-    override var isHighlighted: Bool {
-        didSet {
-            guard isHighlighted != oldValue else { return }
-            guard isHighlighted else {
-                transform = .identity
-                return
-            }
-            UIView.animate(withDuration: 0.1, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {  // transition: all 0.1s ease-in-out
-                self.transform = CGAffineTransform(scaleX: 0.98, y: 0.98)  // scale(0.98)
-            }
+    private func applyVariant() {
+        restingBackground = baseBackground
+        if isCurrentTab {
+            // default: text-primary-foreground select:bg-primary/60, under the pill
+            selectedBackground = UIColor.HayaseTheme.primary.withAlphaComponent(0.6)
+            restingTint = UIColor.HayaseTheme.primaryForeground
+            selectedTint = UIColor.HayaseTheme.primaryForeground
+        } else {
+            // ghost: select:bg-secondary-foreground/20 select:text-accent-foreground
+            selectedBackground = UIColor.HayaseTheme.secondaryForeground.withAlphaComponent(0.2)
+            restingTint = UIColor.HayaseTheme.foreground
+            selectedTint = UIColor.HayaseTheme.accentForeground
         }
     }
 
@@ -198,6 +208,6 @@ final class HayaseNavTabButton: UIButton {
             fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 0.2, 1)  // transition-colors
             label.layer.add(fade, forKey: "hayaseTitleColor")
         }
-        setTitleColor(current ? UIColor.HayaseTheme.primaryForeground : UIColor.HayaseTheme.foreground, for: .normal)
+        applyVariant()
     }
 }

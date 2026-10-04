@@ -66,11 +66,11 @@ final class ThreadWriteViewController: UIViewController, UITextViewDelegate {
 
         footer.addArrangedSubview(UIView())
 
-        let closeButton = makeTextButton("Close", background: UIColor.HayaseTheme.secondary)
+        let closeButton = makeTextButton("Close", primary: false)
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         footer.addArrangedSubview(closeButton)
 
-        let sendButton = makeTextButton("Send", background: UIColor.HayaseTheme.primary)
+        let sendButton = makeTextButton("Send", primary: true)
         sendButton.setTitleColor(UIColor.HayaseTheme.primaryForeground, for: .normal)
         sendButton.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
         footer.addArrangedSubview(sendButton)
@@ -98,13 +98,12 @@ final class ThreadWriteViewController: UIViewController, UITextViewDelegate {
         }
     }
 
-    private func makeTextButton(_ title: String, background: UIColor) -> UIButton {
-        let button = UIButton(type: .system)
+    /// `<Button variant='secondary'>` (Close) and `<Button>` (Send), size default: h-9 px-4 py-2 text-sm font-medium
+    private func makeTextButton(_ title: String, primary: Bool) -> SelectButton {
+        let button = SelectButton(frame: .zero)
         button.setTitle(title, for: .normal)
-        button.titleLabel?.font = .nunito(ofSize: 14, weight: .semibold)
-        button.setTitleColor(UIColor.HayaseTheme.secondaryForeground, for: .normal)
-        button.backgroundColor = background
-        button.layer.cornerRadius = 6
+        button.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
+        if primary { button.applyPrimaryVariant() } else { button.applySecondaryVariant() }
         button.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
         return button
     }

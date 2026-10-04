@@ -13,7 +13,7 @@
 
 import UIKit
 
-final class Checkbox: UIControl {
+final class Checkbox: UIControl, NoActiveScale {
     static let side: CGFloat = 18
 
     private let mark = UIImageView(image: RadixIcons.check(size: 14))

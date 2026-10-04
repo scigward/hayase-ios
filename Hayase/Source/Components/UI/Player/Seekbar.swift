@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
 /// A chapter-segmented progress bar matching the Hayase web interface seekbar.svelte.
 /// Each chapter forms a separate rounded bar segment with small gaps between them.
 /// Replaces UISlider + chapterLayer for a faithful recreation of the web player.
-final class SegmentedSeekBar: UIControl, KeyboardEventListener {
+final class SegmentedSeekBar: UIControl, KeyboardEventListener, NoActiveScale {
 
     // MARK: - Public State
 

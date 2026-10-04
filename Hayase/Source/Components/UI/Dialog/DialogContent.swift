@@ -350,7 +350,7 @@ enum SettingsToast {
 /// focus:ring-2 focus:ring-offset-2`, no opacity of its own. sheet-content.svelte and the schedule
 /// drawer: the same with `opacity-70` and `hover:opacity-100` (`select:opacity-100`).
 /// app.css, for every button: `&:active { transition: all 0.1s ease-in-out; transform: scale(0.98) }`.
-final class HayaseCloseButton: UIButton, ActiveElementObserver {
+final class HayaseCloseButton: UIButton, ActiveElementObserver, NoActiveScale {
     enum Style { case dialog, sheet }
     private let style: Style
     private let ringOffsetLayer = CAShapeLayer()

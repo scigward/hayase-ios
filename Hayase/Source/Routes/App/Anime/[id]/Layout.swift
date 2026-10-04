@@ -276,6 +276,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         button.backgroundColor = .clear
         button.accessibilityLabel = "Open cover"
         button.adjustsImageWhenHighlighted = false
+        button.noActiveScale = true   // the cover scales itself (`applyCoverState`)
         return button
     }()
 

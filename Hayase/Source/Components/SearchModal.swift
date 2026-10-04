@@ -174,7 +174,7 @@ final class ExtensionSearchViewController: UIViewController {
     private var filterField: UITextField!
     private var episodeField: UITextField!
     private var resolutionComboBox: ComboBox!
-    private var autoSelectButton: UIButton!
+    private var autoSelectButton: SelectButton!
     private var controlsRow: UIStackView!
     private var controlsHeightConstraint: NSLayoutConstraint!
     private var controlsRowHeightConstraint: NSLayoutConstraint!
@@ -538,11 +538,14 @@ final class ExtensionSearchViewController: UIViewController {
         controlsView.addSubview(controlsRow)
 
         // Auto Select button — matches web ProgressButton
-        autoSelectButton = UIButton(type: .system)
+        autoSelectButton = SelectButton(type: .system)
         autoSelectButton.setTitle("Auto Select Torrent", for: .normal)
-        autoSelectButton.setTitleColor(contrastColor, for: .normal)
+        // bg-custom select:bg-custom-600 text-contrast
+        autoSelectButton.restingBackground = accentColor
+        autoSelectButton.selectedBackground = accentColor.withHSLLightness(0.4)
+        autoSelectButton.restingTint = contrastColor
+        autoSelectButton.selectedTint = contrastColor
         autoSelectButton.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)  // text-sm font-bold
-        autoSelectButton.backgroundColor = accentColor
         autoSelectButton.layer.cornerRadius = 6  // rounded-md
         autoSelectButton.clipsToBounds = true
         autoSelectButton.addTarget(self, action: #selector(autoSelectTapped), for: .touchUpInside)

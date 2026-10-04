@@ -390,8 +390,8 @@ final class CastPlaylistDialog: UIViewController {
     private let card = UIView()
     private let scrollView = UIScrollView()
     private let stack = UIStackView()
-    // Dialog.Close: `absolute right-4 top-4 rounded-sm`, Cross2 `size-4`.
-    private let closeButton = UIButton(type: .system)
+    // Dialog.Close: `absolute right-4 top-4 rounded-sm`, Cross2 `size-4`: the close button of every dialog.
+    private let closeButton = HayaseCloseButton()
     private var cardStretchWidth: NSLayoutConstraint?
 
     private var cardTransform: CGAffineTransform {
@@ -506,9 +506,6 @@ final class CastPlaylistDialog: UIViewController {
         scrollView.addSubview(stack)
 
         closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.setImage(UIImage.hayaseIcon("x", pointSize: 16), for: .normal)   // Cross2 (radix-icons) size-4=16px; lucide "x" is the closest bundled equivalent
-        closeButton.tintColor = UIColor.HayaseTheme.foreground
-        closeButton.layer.cornerRadius = 2   // rounded-sm
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         card.addSubview(closeButton)
 

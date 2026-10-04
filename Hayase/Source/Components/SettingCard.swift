@@ -235,7 +235,7 @@ final class SettingsActionsView: UIStackView, SettingsResponsiveView {
     func updateLayout(viewportWidth: CGFloat) { axis = viewportWidth >= 768 ? .horizontal : .vertical }
 }
 
-final class SettingsSliderControl: UIControl, KeyboardEventListener {
+final class SettingsSliderControl: UIControl, KeyboardEventListener, NoActiveScale {
     private let track = UIView()
     private let fill = UIView()
     private let thumb = UIView()

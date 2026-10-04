@@ -12,7 +12,7 @@ import UIKit
 /// (rounded-md, px-4, and the variant's `shadow`); a `ghostButton` is the same in the ghost
 /// variant, which the genres use and which has no shadow. `select` is hover, focus-visible or
 /// active, so a touch is selected while it is down and an iPad pointer while it hovers.
-final class BannerBadge: UIControl {
+final class BannerBadge: UIControl, NoActiveScale {
     enum Kind {
         case label
         case button

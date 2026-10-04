@@ -97,6 +97,8 @@ final class LibraryColumnCell: UITableViewCell {
         tap.delegate = self
         contentView.addGestureRecognizer(tap)
         onDPadClick = { [weak self] in self?.onOpen?() }
+        // a `<tr on:click>`: not a button, link or `[tabindex]`, so app.css does not scale it while it is pressed
+        noActiveScale = true
         contentView.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(rowHovered(_:))))
         dateStack.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(dateHovered(_:))))
         let dateHold = UILongPressGestureRecognizer(target: self, action: #selector(dateHeld(_:)))
