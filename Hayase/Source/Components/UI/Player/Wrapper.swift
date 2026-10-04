@@ -813,13 +813,6 @@ final class MiniPlayerManager {
             "totalEpisodes": player.totalEpisodes
         ]
         UserDefaults.standard.set(state, forKey: Self.sessionStateKey)
-
-        // Flush CoreData to disk so the Videos/Torrents entities survive a
-        // force-quit. mainQueueContext.save() only pushes to the in-memory
-        // rootContext; without this, a killed app loses all CoreData rows.
-        let ctx = CoreDataService.sharedCoreDataService.mainQueueContext
-        try? ctx.save()
-        CoreDataService.sharedCoreDataService.saveRootContext {}
     }
 
     /// Clears the persisted session state (called on explicit close).
@@ -930,7 +923,6 @@ final class MiniPlayerManager {
             torrentEntity.torrentDownloadURL = restoredSource
         }
         try? context.save()
-        CoreDataService.sharedCoreDataService.saveRootContext {}
 
         let videoService = VideoService(torrentEntity: torrentEntity, episode: episodeNumber)
         pendingWebTorrentRestoreService = videoService

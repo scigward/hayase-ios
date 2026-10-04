@@ -10,25 +10,11 @@ import CoreData
 import Foundation
 
 
-public typealias SaveCompletionHandler = () -> Void
-
-
+/// The graph of `Torrents`, `Animes` and `Videos` that the player is built from is the session of the app, what the
+/// interface keeps in `server.last` and `server.active`: the backend is where the files of a torrent are, and a session
+/// is made again from the saved state of the player (`MiniPlayerManager`) when the app is opened. So it lives in memory
+/// and starts empty on every launch; nothing is written to disk.
 public class CoreDataService {
-public func saveRootContext(completionHandler: @escaping SaveCompletionHandler) {
-self.rootContext.perform {
-do {
-try self.rootContext.save()
-DispatchQueue.main.async {
-completionHandler()
-}
-} catch let error {
-print("Failed to save root context: \(error as NSError)")
-DispatchQueue.main.async {
-completionHandler()
-}
-}
-}
-}
 
 // MARK: Initialization
 private init() {
@@ -42,44 +28,14 @@ guard let someManagedObjectModel = NSManagedObjectModel(contentsOf: modelURL) el
 fatalError("Could not load model at URL \(modelURL)")
 }
 
-let documentsDirectoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-?? FileManager.default.temporaryDirectory
-
 managedObjectModel = someManagedObjectModel
 persistentStoreCoordinator = NSPersistentStoreCoordinator(managedObjectModel: managedObjectModel)
-
-let preferredStoreRootURL = documentsDirectoryURL.appendingPathComponent("DataStore")
-let storeRootURL: URL
-if Self.createDirectoryIfNeeded(at: preferredStoreRootURL) {
-storeRootURL = preferredStoreRootURL
-} else {
-let fallbackRootURL = FileManager.default.temporaryDirectory.appendingPathComponent("HayaseDataStore")
-_ = Self.createDirectoryIfNeeded(at: fallbackRootURL)
-storeRootURL = fallbackRootURL
-}
-
-let persistentStoreURL = storeRootURL.appendingPathComponent("\(CoreDataService.storeName).sqlite")
-let persistentStoreOptions: [String: Any] = [
-NSMigratePersistentStoresAutomaticallyOption: true,
-NSInferMappingModelAutomaticallyOption: true
-]
-
-do {
-try persistentStoreCoordinator.addPersistentStore(ofType: NSSQLiteStoreType, configurationName: nil, at: persistentStoreURL, options: persistentStoreOptions)
-} catch let error {
-print("CoreDataService: failed to open persistent store, resetting local store: \(error as NSError)")
-Self.moveAsidePersistentStoreFiles(at: persistentStoreURL)
-do {
-try persistentStoreCoordinator.addPersistentStore(ofType: NSSQLiteStoreType, configurationName: nil, at: persistentStoreURL, options: persistentStoreOptions)
-} catch let retryError {
-print("CoreDataService: failed to recreate persistent store, using in-memory fallback: \(retryError as NSError)")
 do {
 try persistentStoreCoordinator.addPersistentStore(ofType: NSInMemoryStoreType, configurationName: nil, at: nil, options: nil)
-} catch let memoryError {
-fatalError("Error creating persistent store fallback \(memoryError as NSError)")
+} catch let error {
+fatalError("Error creating the in-memory store \(error as NSError)")
 }
-}
-}
+Self.removeLegacyStore()
 
 rootContext = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
 rootContext.persistentStoreCoordinator = persistentStoreCoordinator
@@ -90,35 +46,15 @@ mainQueueContext.parent = rootContext
 mainQueueContext.undoManager = nil
 }
 
-
-private static func createDirectoryIfNeeded(at url: URL) -> Bool {
+/// The sessions that earlier versions wrote to disk
+private static func removeLegacyStore() {
 let fileManager = FileManager.default
-if fileManager.fileExists(atPath: url.path) { return true }
-do {
-try fileManager.createDirectory(at: url, withIntermediateDirectories: true, attributes: nil)
-return true
-} catch {
-print("CoreDataService: failed to create data store directory at \(url.path): \(error as NSError)")
-return false
-}
-}
-
-private static func moveAsidePersistentStoreFiles(at storeURL: URL) {
-let fileManager = FileManager.default
-let timestamp = Int(Date().timeIntervalSince1970)
-let urls = [
-storeURL,
-URL(fileURLWithPath: storeURL.path + "-wal"),
-URL(fileURLWithPath: storeURL.path + "-shm")
+let folders = [
+fileManager.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("DataStore"),
+fileManager.temporaryDirectory.appendingPathComponent("HayaseDataStore"),
 ]
-for url in urls where fileManager.fileExists(atPath: url.path) {
-let backupURL = url.deletingLastPathComponent()
-.appendingPathComponent("\(url.lastPathComponent).corrupt.\(timestamp)")
-do {
-try fileManager.moveItem(at: url, to: backupURL)
-} catch {
-try? fileManager.removeItem(at: url)
-}
+for folder in folders.compactMap({ $0 }) where fileManager.fileExists(atPath: folder.path) {
+try? fileManager.removeItem(at: folder)
 }
 }
 
@@ -132,6 +68,5 @@ private let rootContext: NSManagedObjectContext
 
 // MARK: Properties (Static)
 public static var modelName = "Model"
-public static var storeName = "Model"
 public static let sharedCoreDataService = CoreDataService()
 }

@@ -714,7 +714,6 @@ extension DownloadsViewController {
         }
 
         try? context.save()
-        CoreDataService.sharedCoreDataService.saveRootContext {}
         return torrentEntity
     }
 

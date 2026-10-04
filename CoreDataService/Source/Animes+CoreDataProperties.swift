@@ -16,19 +16,14 @@ extension Animes {
 
     @NSManaged var animeAnilistId: NSNumber?
     @NSManaged var animeDescription: String?
-    @NSManaged var animeFlagTemp: NSNumber?
     @NSManaged var animeImgL: String?
     @NSManaged var animeImgM: String?
     @NSManaged var animeImgS: String?
-    @NSManaged var animeNextEps: NSNumber?
-    @NSManaged var animeNextEpsTime: Date?
-    @NSManaged var animePopularity: NSNumber?
     @NSManaged var animeScore: NSNumber?
     @NSManaged var animeStatus: String?
     @NSManaged var animeTitleEnglish: String?
     @NSManaged var animeTitleJapanese: String?
     @NSManaged var animeTotalEps: NSNumber?
-    @NSManaged var animeOrder: NSNumber?
     @NSManaged var torrents: NSSet?
 
 }

@@ -21,7 +21,6 @@ extension Videos {
     /// localhost). `videoPath` stays loopback-only for local MPV playback;
     /// this is what a Chromecast/DLNA display fetches the stream from.
     @NSManaged var videoLanPath: String?
-    @NSManaged var videoDownloadPercent: NSNumber?
     @NSManaged var videoIndex: NSNumber?
     @NSManaged var videoSize: NSNumber?
     @NSManaged var torrents: Torrents?

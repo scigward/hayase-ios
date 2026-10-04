@@ -1209,7 +1209,6 @@ final class ExtensionSearchViewController: UIViewController {
         entity.torrentSeeders     = NSNumber(value: result.seeders)
         entity.torrentLeechers    = NSNumber(value: result.leechers)
         entity.torrentSize        = NSNumber(value: Double(result.size) / 1_048_576)
-        entity.torrentFlagTemp    = false
         if let animeItem {
             let req = Animes.fetchRequest()
             req.predicate = NSPredicate(format: "animeAnilistId == %d", animeItem.id)
