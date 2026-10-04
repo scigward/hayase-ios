@@ -142,3 +142,106 @@ final class FileEntryTableCell: UITableViewCell {
         ])
     }
 }
+
+// MARK: - The files page (files/table.svelte)
+
+extension DownloadsViewController {
+    func buildFilesUI() {
+        TorrentClientStyle.configurePlainContentView(filesView)
+
+        filesSearchField.translatesAutoresizingMaskIntoConstraints = false
+        filesSearchField.addTarget(self, action: #selector(filesSearchChanged), for: .editingChanged)
+        filesView.addSubview(filesSearchField)
+
+        let borderContainer = UIView()
+        TorrentClientStyle.configureTableShell(borderContainer)
+        borderContainer.translatesAutoresizingMaskIntoConstraints = false
+        filesView.addSubview(borderContainer)
+
+        filesTableView = UITableView(frame: .zero, style: .plain)
+        filesTableView.translatesAutoresizingMaskIntoConstraints = false
+        filesTableView.delegate = self
+        filesTableView.dataSource = self
+        filesTableView.register(FileEntryTableCell.self, forCellReuseIdentifier: FileEntryTableCell.reuseID)
+        filesTableView.rowHeight = Self.filesRowHeight
+        filesTableView.estimatedRowHeight = Self.filesRowHeight
+        TorrentClientStyle.configureTableView(filesTableView)
+        filesMinimumWidth = TorrentClientStyle.installScrollableTable(filesTableView, in: borderContainer,
+            minimumWidth: TorrentClientColumnWidths.minimumTableWidth(filesColumnWidths,
+                flexibleMinimums: [0: TorrentClientColumnWidths.filesNameMinimum]))
+
+        NSLayoutConstraint.activate([
+            filesSearchField.topAnchor.constraint(equalTo: filesView.topAnchor),
+            filesSearchField.leadingAnchor.constraint(equalTo: filesView.leadingAnchor),
+            filesSearchField.trailingAnchor.constraint(equalTo: filesView.trailingAnchor),
+            filesSearchField.heightAnchor.constraint(equalToConstant: 36),
+
+            borderContainer.topAnchor.constraint(equalTo: filesSearchField.bottomAnchor, constant: 8),
+            borderContainer.leadingAnchor.constraint(equalTo: filesView.leadingAnchor),
+            borderContainer.trailingAnchor.constraint(equalTo: filesView.trailingAnchor),
+            borderContainer.bottomAnchor.constraint(equalTo: filesView.bottomAnchor),
+
+        ])
+    }
+
+    @objc func filesSearchChanged() {
+        refreshFiles()
+    }
+
+    func refreshFiles() {
+        let query = filesSearchField.text?.lowercased() ?? ""
+        webFilteredFileInfos = query.isEmpty
+            ? webFileInfos
+            : webFileInfos.filter { $0.name.lowercased().contains(query) }
+
+        if let sortCol = filesSortColumn {
+            let ascending = filesSortAscending
+            webFilteredFileInfos.sort { a, b in
+                switch sortCol {
+                case .name:
+                    return ascending ? a.name < b.name : a.name > b.name
+                case .size:
+                    return ascending ? a.size < b.size : a.size > b.size
+                case .progress:
+                    return ascending ? a.progress < b.progress : a.progress > b.progress
+                case .streams:
+                    return ascending ? a.selections < b.selections : a.selections > b.selections
+                }
+            }
+        }
+        filesColumnWidths = TorrentClientColumnWidths.files(entries: webFilteredFileInfos)
+        updateFileColumnLayout()
+    }
+
+    func updateFileColumnLayout() {
+        filesMinimumWidth?.constant = TorrentClientColumnWidths.minimumTableWidth(filesColumnWidths,
+            flexibleMinimums: [0: TorrentClientColumnWidths.filesNameMinimum])
+        filesTableView?.reloadData()
+    }
+
+    /// Uses the same Asc/Desc menu and shared header as peers and library.
+    func makeFileColumnHeader() -> UIView {
+        makeColumnHeader(columns: [("File Name", filesColumnWidths[0]), ("Size", filesColumnWidths[1]),
+                                  ("Progress", filesColumnWidths[2]), ("Streams", filesColumnWidths[3])],
+                         sortableColumnIndices: Set(0...3), activeColumnIndex: filesSortColumn?.rawValue,
+                         sortAscending: filesSortAscending, target: self, action: #selector(fileColumnHeaderTapped(_:)),
+                         onSort: { [weak self] index, ascending in
+                             self?.filesSortColumn = FileSortColumn(rawValue: index)
+                             self?.filesSortAscending = ascending
+                             self?.refreshFiles()
+                         })
+    }
+
+    /// Handles tap on a Files column header button.
+    /// Matches Hayase's column sort dropdown with Asc/Desc options.
+    @objc func fileColumnHeaderTapped(_ sender: UIButton) {
+        guard let col = FileSortColumn(rawValue: sender.tag) else { return }
+        if filesSortColumn == col {
+            filesSortAscending.toggle()
+        } else {
+            filesSortColumn = col
+            filesSortAscending = true
+        }
+        refreshFiles()
+    }
+}

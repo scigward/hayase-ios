@@ -51,7 +51,7 @@ Priority: **P1** correctness/data/session issues; **P2** observable functional p
 
 **Evidence:** [bridge `removeRunningTorrents` and `deleteTorrents`](../Hayase/Resources/WebTorrentBackend/webtorrent-bridge.js) removes selected running torrents with `destroyStore: true`, then calls upstream `deleteTorrents`. Upstream builds its protected hashes from `sessions.values()` and skips those hashes. The bridge never releases that session. Consequently the upstream metadata deletion for an actively owned hash is skipped even after its live files were removed.
 
-Swift [Library deletion](../Hayase/Source/Components/UI/TorrentClient/DownloadsViewController.swift) reports success and filters local rows before a backend library refetch completes. Interface instead awaits `server.updateLibrary()` before clearing selection/resolving its promise. A surviving cache record can therefore disappear locally and return on refresh.
+Swift [Library deletion](../Hayase/Source/Components/UI/TorrentClient/Library/LibraryTable.swift) reports success and filters local rows before a backend library refetch completes. Interface instead awaits `server.updateLibrary()` before clearing selection/resolving its promise. A surviving cache record can therefore disappear locally and return on refresh.
 
 **Target:** choose the upstream contract deliberately: retain/protect active torrents, or explicitly stop playback/release ownership before deleting. Do not combine forced removal with stale ownership. Refetch authoritative Library before presenting the final result.
 

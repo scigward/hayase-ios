@@ -209,3 +209,112 @@ final class PeerInfoCell: UITableViewCell {
         configure(row: TorrentClientPeerRow(peer: peer))
     }
 }
+
+// MARK: - The peers page (peers/table.svelte)
+
+extension DownloadsViewController {
+    func buildPeersUI() {
+        TorrentClientStyle.configurePlainContentView(peersView)
+
+        let borderContainer = UIView()
+        TorrentClientStyle.configureTableShell(borderContainer)
+        borderContainer.translatesAutoresizingMaskIntoConstraints = false
+        peersView.addSubview(borderContainer)
+
+        peersHorizontalScrollView = UIScrollView()
+        peersHorizontalScrollView.translatesAutoresizingMaskIntoConstraints = false
+        peersHorizontalScrollView.showsHorizontalScrollIndicator = true
+        peersHorizontalScrollView.showsVerticalScrollIndicator = false
+        peersHorizontalScrollView.alwaysBounceHorizontal = false
+        peersHorizontalScrollView.alwaysBounceVertical = false
+        peersHorizontalScrollView.backgroundColor = .clear
+        borderContainer.addSubview(peersHorizontalScrollView)
+
+        peersTableView = UITableView(frame: .zero, style: .plain)
+        peersTableView.translatesAutoresizingMaskIntoConstraints = false
+        peersTableView.delegate = self
+        peersTableView.dataSource = self
+        peersTableView.register(PeerInfoCell.self, forCellReuseIdentifier: PeerInfoCell.reuseID)
+        peersTableView.rowHeight = 56
+        peersTableView.estimatedRowHeight = 56
+        TorrentClientStyle.configureTableView(peersTableView)
+        peersTableView.allowsSelection = false
+        peersHorizontalScrollView.addSubview(peersTableView)
+
+        let peersMinimumWidth = peersTableView.widthAnchor.constraint(greaterThanOrEqualToConstant:
+            PeerTableLayout.minimumContentWidth(widths: peerColumnWidths))
+        self.peersMinimumWidth = peersMinimumWidth
+        let preferredWidth = peersTableView.widthAnchor.constraint(equalTo: peersHorizontalScrollView.frameLayoutGuide.widthAnchor)
+        preferredWidth.priority = .defaultHigh
+
+        NSLayoutConstraint.activate([
+            borderContainer.topAnchor.constraint(equalTo: peersView.topAnchor),
+            borderContainer.leadingAnchor.constraint(equalTo: peersView.leadingAnchor),
+            borderContainer.trailingAnchor.constraint(equalTo: peersView.trailingAnchor),
+            borderContainer.bottomAnchor.constraint(equalTo: peersView.bottomAnchor),
+
+            peersHorizontalScrollView.topAnchor.constraint(equalTo: borderContainer.topAnchor),
+            peersHorizontalScrollView.leadingAnchor.constraint(equalTo: borderContainer.leadingAnchor),
+            peersHorizontalScrollView.trailingAnchor.constraint(equalTo: borderContainer.trailingAnchor),
+            peersHorizontalScrollView.bottomAnchor.constraint(equalTo: borderContainer.bottomAnchor),
+
+            peersTableView.topAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.topAnchor),
+            peersTableView.leadingAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.leadingAnchor),
+            peersTableView.trailingAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.trailingAnchor),
+            peersTableView.bottomAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.bottomAnchor),
+            peersTableView.heightAnchor.constraint(equalTo: peersHorizontalScrollView.frameLayoutGuide.heightAnchor),
+            peersTableView.widthAnchor.constraint(greaterThanOrEqualTo: peersHorizontalScrollView.frameLayoutGuide.widthAnchor),
+            peersMinimumWidth,
+            preferredWidth,
+        ])
+    }
+
+    func refreshPeers() {
+        let rows = currentPeerRows()
+        peerColumnWidths = PeerTableLayout.widths(for: rows)
+        peersMinimumWidth?.constant = PeerTableLayout.minimumContentWidth(widths: peerColumnWidths)
+        globeView.setPeers(rows)
+        peersTableView?.reloadData()
+    }
+
+    func currentPeerRows() -> [TorrentClientPeerRow] {
+        var rows = webPeerInfos.map(TorrentClientPeerRow.init(peer:))
+
+        guard let sortColumn = peersSortColumn else { return rows }
+        let ascending = peersSortAscending
+        rows.sort { lhs, rhs in
+            let result: ComparisonResult
+            switch sortColumn {
+            case .ip:
+                result = lhs.ip.localizedStandardCompare(rhs.ip)
+            case .client:
+                result = lhs.client.localizedCaseInsensitiveCompare(rhs.client)
+            case .progress:
+                result = lhs.progress == rhs.progress ? .orderedSame : (lhs.progress < rhs.progress ? .orderedAscending : .orderedDescending)
+            case .download:
+                result = lhs.downloadSpeed == rhs.downloadSpeed ? .orderedSame : (lhs.downloadSpeed < rhs.downloadSpeed ? .orderedAscending : .orderedDescending)
+            case .upload:
+                result = lhs.uploadSpeed == rhs.uploadSpeed ? .orderedSame : (lhs.uploadSpeed < rhs.uploadSpeed ? .orderedAscending : .orderedDescending)
+            case .downloaded:
+                result = lhs.downloaded == rhs.downloaded ? .orderedSame : (lhs.downloaded < rhs.downloaded ? .orderedAscending : .orderedDescending)
+            case .uploaded:
+                result = lhs.uploaded == rhs.uploaded ? .orderedSame : (lhs.uploaded < rhs.uploaded ? .orderedAscending : .orderedDescending)
+            case .country:
+                result = lhs.ip.localizedStandardCompare(rhs.ip) // source accessor is the IP
+            }
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }
+        return rows
+    }
+
+    @objc func handlePeerHeaderTap(_ sender: UIButton) {
+        guard let column = PeerSortColumn(rawValue: sender.tag) else { return }
+        if peersSortColumn == column {
+            peersSortAscending.toggle()
+        } else {
+            peersSortColumn = column
+            peersSortAscending = true
+        }
+        peersTableView?.reloadData()
+    }
+}

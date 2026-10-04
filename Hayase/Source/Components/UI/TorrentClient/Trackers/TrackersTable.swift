@@ -133,3 +133,47 @@ final class TrackerStatusCell: UITableViewCell {
         }
     }
 }
+
+// MARK: - The trackers page (trackers/table.svelte)
+
+extension DownloadsViewController {
+    func buildTrackersUI() {
+        TorrentClientStyle.configurePlainContentView(trackersView)
+
+        let borderContainer = UIView()
+        TorrentClientStyle.configureTableShell(borderContainer)
+        borderContainer.translatesAutoresizingMaskIntoConstraints = false
+        trackersView.addSubview(borderContainer)
+
+        trackersTableView = UITableView(frame: .zero, style: .plain)
+        trackersTableView.translatesAutoresizingMaskIntoConstraints = false
+        trackersTableView.delegate = self
+        trackersTableView.dataSource = self
+        trackersTableView.register(TrackerStatusCell.self, forCellReuseIdentifier: TrackerStatusCell.reuseID)
+        trackersTableView.rowHeight = 56
+        trackersTableView.estimatedRowHeight = 56
+        TorrentClientStyle.configureTableView(trackersTableView)
+        trackersTableView.allowsSelection = false
+        trackersMinimumWidth = TorrentClientStyle.installScrollableTable(trackersTableView, in: borderContainer,
+            minimumWidth: TrackerTableLayout.minimumContentWidth(widths: trackerColumnWidths))
+
+        NSLayoutConstraint.activate([
+            borderContainer.topAnchor.constraint(equalTo: trackersView.topAnchor),
+            borderContainer.leadingAnchor.constraint(equalTo: trackersView.leadingAnchor),
+            borderContainer.trailingAnchor.constraint(equalTo: trackersView.trailingAnchor),
+            borderContainer.bottomAnchor.constraint(equalTo: trackersView.bottomAnchor),
+
+        ])
+    }
+
+    func refreshTrackers() {
+        if selectedHex.isEmpty { webTrackerRows = [] }
+        updateTrackerColumnLayout()
+    }
+
+    func updateTrackerColumnLayout() {
+        trackerColumnWidths = TrackerTableLayout.widths(for: webTrackerRows)
+        trackersMinimumWidth?.constant = TrackerTableLayout.minimumContentWidth(widths: trackerColumnWidths)
+        trackersTableView?.reloadData()
+    }
+}
