@@ -22,14 +22,14 @@ extension SettingsViewController {
             path.input.isUserInteractionEnabled = false
             path.input.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
             combo.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
-            let control = UIStackView(arrangedSubviews: [path, combo])
-            control.axis = .horizontal
-            control.spacing = 0
-            return card(row, control: control)
+            let control = SettingsDownloadLocationControl(path: path, combo: combo)
+            return SettingsCardView(title: row.title, description: row.description, control: control,
+                                    fillsCompactWidth: true)
 
         case .editableNumber(let key, let fallback, let suffix, let lower, let upper):
             let input = SettingsInputControl(value: UserDefaults.standard.string(forKey: key) ?? fallback,
-                                             placeholder: fallback, width: 128, numeric: true, suffix: suffix)
+                                             placeholder: key == "pref_nzbPoolSize" ? "5" : fallback,
+                                             width: 128, numeric: true, suffix: suffix)
             let fraction = key == Settings.Keys.seekDuration || key == "pref_torrentSpeed"
             input.onChange = { [weak self] value in
                 guard let number = Double(value), number.isFinite,
@@ -42,7 +42,8 @@ extension SettingsViewController {
                 self?.commitInput(value, key: key, fallback: fallback,
                                   numericRange: lower...upper, allowsFraction: fraction) ?? fallback
             }
-            return card(row, control: input)
+            return SettingsCardView(title: row.title, description: row.description, control: input,
+                                    topAlignedControl: key == "pref_torrentSpeed")
 
         case .editableText(let key, let fallback, let secure):
             let placeholders = ["pref_nzbDomain": "news.example.com", "pref_nzbLogin": "admin", Settings.Keys.nzbPassword: "admin1"]
@@ -107,7 +108,7 @@ extension SettingsViewController {
             return changelog
 
         case .button(let title):
-            let button = SettingsTypography.button(title)
+            let button = SettingsTypography.button(title, weight: .bold)
             // `<Button href='/#/app/debug'>`
             button.addAction(UIAction { _ in Router.shared.navigate(.debug) }, for: .touchUpInside)
             return card(row, control: button)
@@ -141,6 +142,22 @@ extension SettingsViewController {
     func showLicense() {
         Router.shared.navigate(.license)
     }
+}
+
+/// client/+page.svelte: the read-only path is fluid on compact screens, `sm:w-60` otherwise.
+private final class SettingsDownloadLocationControl: UIStackView, SettingsResponsiveView {
+    private let path: SettingsInputControl
+
+    init(path: SettingsInputControl, combo: ComboBox) {
+        self.path = path
+        super.init(frame: .zero)
+        axis = .horizontal
+        spacing = 0
+        addArrangedSubview(path)
+        addArrangedSubview(combo)
+    }
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func updateLayout(viewportWidth: CGFloat) { path.setPreferredWidthEnabled(viewportWidth >= 640) }
 }
 
 private final class SettingsSliderGroup: UIStackView, SettingsResponsiveView {

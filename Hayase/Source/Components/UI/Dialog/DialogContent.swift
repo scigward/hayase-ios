@@ -8,6 +8,19 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
     /// Only content with `!w-auto` (such as the torrent-library confirmation)
     /// opts into shrink-to-fit. Existing settings dialogs remain full-width.
     var preferredPanelWidth: CGFloat?
+    /// Explicit viewport sizing (`w-[80vw] h-[70vh]`) used by the extension source viewer.
+    var preferredPanelWidthFraction: CGFloat?
+    var preferredPanelHeightFraction: CGFloat?
+    /// Only a Dialog.Header centers its title below sm; titles directly in Content stay left-aligned.
+    var centersCompactHeading = false
+    /// Dialog.Header groups Title and Description with `space-y-1.5`.
+    var headerDescription: String? {
+        didSet {
+            headerDescriptionLabel?.attributedText = SettingsTypography.label(headerDescription ?? "",
+                size: 14, lineHeight: 20, color: UIColor.HayaseTheme.mutedForeground).attributedText
+        }
+    }
+    private weak var headerDescriptionLabel: UILabel?
     /// `max-h-[80%]` and the like. A dialog without one is as tall as its content, whatever the window is.
     var limitsHeight = true
     /// `bg-popover`, or `bg-background` for the dialogs that ask for it
@@ -68,7 +81,17 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
         content.spacing = 16
         content.translatesAutoresizingMaskIntoConstraints = false
         if !heading.isEmpty {
-            content.insertArrangedSubview(SettingsTypography.label(heading, size: 18, lineHeight: 18, weight: .bold), at: 0)
+            let title = SettingsTypography.label(heading, size: 18, lineHeight: 18, weight: .bold)
+            if let headerDescription {
+                let description = SettingsTypography.label(headerDescription, size: 14, lineHeight: 20,
+                                                            color: UIColor.HayaseTheme.mutedForeground)
+                headerDescriptionLabel = description
+                let header = SettingsDialogHeader(title: title, description: description)
+                content.insertArrangedSubview(header, at: 0)
+            } else {
+                let headingView: UIView = centersCompactHeading ? SettingsDialogHeader(title: title) : title
+                content.insertArrangedSubview(headingView, at: 0)
+            }
         }
         scroll.addSubview(content)
         NSLayoutConstraint.activate([
@@ -82,6 +105,10 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
             content.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             content.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
         ])
+        if preferredPanelHeightFraction != nil {
+            // Keep the footer at the bottom of an explicitly sized source dialog; its code view grows.
+            content.heightAnchor.constraint(greaterThanOrEqualTo: scroll.frameLayoutGuide.heightAnchor).isActive = true
+        }
         let closeButton = HayaseCloseButton()
         closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
@@ -149,7 +176,9 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
         super.viewDidLayoutSubviews()
         backdrop.frame = view.bounds
         stripedBackdrop.frame = backdrop.bounds
-        let width = min(min(maximumWidth, view.bounds.width), preferredPanelWidth ?? maximumWidth)
+        let requestedWidth = preferredPanelWidthFraction.map { view.bounds.width * $0 }
+            ?? preferredPanelWidth ?? maximumWidth
+        let width = min(min(maximumWidth, view.bounds.width), requestedWidth)
         let viewport = view.window?.rootViewController?.view.bounds.width ?? view.bounds.width
         content.arrangedSubviews.compactMap { $0 as? SettingsResponsiveView }
             .forEach { $0.updateLayout(viewportWidth: viewport) }
@@ -163,7 +192,8 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
         let keyboardTop = view.keyboardLayoutGuide.layoutFrame.minY
         let windowBottom = keyboardTop < safe.maxY - 1 ? keyboardTop : view.bounds.maxY
         let limit = limitsHeight ? windowBottom * heightFraction : CGFloat.greatestFiniteMagnitude
-        let height = min(size.height + inset * 2, limit)
+        let requestedHeight = preferredPanelHeightFraction.map { windowBottom * $0 } ?? (size.height + inset * 2)
+        let height = min(requestedHeight, limit)
         panel.bounds = CGRect(x: 0, y: 0, width: width, height: height)
         panel.center = CGPoint(x: view.bounds.midX, y: windowBottom / 2)
         let radius: CGFloat = viewport >= 640 ? 8 : 0   // sm:rounded-lg
@@ -234,6 +264,48 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
         close()
         event.preventDefault()
         event.stopPropagation()
+    }
+}
+
+final class SettingsDialogHeader: UIStackView, SettingsResponsiveView {
+    private let labels: [UILabel]
+    init(title: UILabel, description: UILabel? = nil) {
+        labels = [title] + (description.map { [$0] } ?? [])
+        super.init(frame: .zero)
+        axis = .vertical
+        spacing = 6
+        labels.forEach { addArrangedSubview($0) }
+    }
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func updateLayout(viewportWidth: CGFloat) {
+        labels.forEach { $0.textAlignment = viewportWidth >= 640 ? .left : .center }
+    }
+}
+
+/// dialog-footer.svelte: compact column-reverse; from `sm`, a right-aligned row with an 8pt gap.
+final class SettingsDialogFooter: UIStackView, SettingsResponsiveView {
+    private let buttons: [UIButton]
+    private let spacer = UIView()
+    private var wide: Bool?
+    init(buttons: [UIButton]) {
+        self.buttons = buttons
+        super.init(frame: .zero)
+        updateLayout(viewportWidth: 0)
+    }
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func updateLayout(viewportWidth: CGFloat) {
+        let next = viewportWidth >= 640
+        guard next != wide else { return }
+        wide = next
+        arrangedSubviews.forEach { removeArrangedSubview($0); $0.removeFromSuperview() }
+        axis = next ? .horizontal : .vertical
+        spacing = next ? 8 : 0
+        if next { addArrangedSubview(spacer) }
+        let ordered = next ? buttons : Array(buttons.reversed())
+        ordered.forEach {
+            $0.setContentHuggingPriority(next ? .required : .defaultLow, for: .horizontal)
+            addArrangedSubview($0)
+        }
     }
 }
 

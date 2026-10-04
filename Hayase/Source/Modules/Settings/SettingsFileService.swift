@@ -12,6 +12,7 @@ enum SettingsFileService {
     // Account credentials, sync toggles and debug are separate stores upstream.
     // Export the settings object, with web names and numeric JSON values.
     private static let fields: [Field] = [
+        .init(web: "volume", native: "volume", fallback: 1.0),
         .init(web: "playerAutoplay", native: Settings.Keys.playerAutoplay, fallback: true),
         .init(web: "playerAutoPiP", native: Settings.Keys.playerAutoPiP, fallback: false),
         .init(web: "playerPause", native: Settings.Keys.playerPause, fallback: true),
@@ -54,7 +55,7 @@ enum SettingsFileService {
         "pref_anilistClientID", "pref_malClientID", "pref_simklClientID", "pref_simklClientSecret",
     ]
     private static let extraKeys: Set<String> = [
-        "volume", "playerCustom", "enableDoH", "doHURL", "hideToTray",
+        "playerCustom", "enableDoH", "doHURL", "hideToTray",
         "showDetailsInRPC", "angle", "enableExternal", "playerPath",
         "theme", "customThemeColors", "torrentPath", "androidStorageType",
     ]
@@ -90,7 +91,8 @@ enum SettingsFileService {
         for field in fields {
             let value = try normalized(values[legacy ? field.native : field.web] ?? field.fallback, field: field)
             // Existing native numeric inputs/readers store numbers as strings.
-            if field.fallback is Double, field.native != Settings.Keys.uiScale, let number = value as? Double {
+            if field.fallback is Double, field.native != Settings.Keys.uiScale,
+               field.native != "volume", let number = value as? Double {
                 replacement[field.native] = number.rounded() == number ? String(format: "%.0f", number) : String(number)
             } else {
                 replacement[field.native] = value
@@ -138,6 +140,7 @@ enum SettingsFileService {
             guard let number, number.isFinite else { throw ImportError.invalidFormat }
             let range: ClosedRange<Double>
             switch field.web {
+            case "volume": range = 0...1
             case "uiScale": range = 0.3...2.5
             case "playerSeek", "torrentSpeed": range = 1...50
             case "maxConns": range = 1...512
@@ -145,7 +148,7 @@ enum SettingsFileService {
             default: range = 0...65535
             }
             guard range.contains(number),
-                  ["uiScale", "playerSeek", "torrentSpeed"].contains(field.web) || number.rounded() == number else {
+                  ["volume", "uiScale", "playerSeek", "torrentSpeed"].contains(field.web) || number.rounded() == number else {
                 throw ImportError.invalidFormat
             }
             return number

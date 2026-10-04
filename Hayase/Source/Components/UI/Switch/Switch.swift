@@ -22,6 +22,12 @@ final class HayaseSwitch: UIControl {
         track.layer.cornerRadius = 8
         thumb.layer.cornerRadius = 6
         thumb.backgroundColor = UIColor.HayaseTheme.background
+        SettingsTypography.applyButtonShadow(to: track, small: true)
+        // Thumb `shadow-lg`: 0 10px 15px -3px rgb(0 0 0 / 0.1).
+        thumb.layer.shadowColor = UIColor.black.cgColor
+        thumb.layer.shadowOpacity = 0.1
+        thumb.layer.shadowOffset = CGSize(width: 0, height: 10)
+        thumb.layer.shadowRadius = 7.5
         [track, stateLabel].forEach { $0.isUserInteractionEnabled = false; addSubview($0) }
         track.addSubview(thumb)
         addTarget(self, action: #selector(toggle), for: .touchUpInside)
@@ -36,7 +42,9 @@ final class HayaseSwitch: UIControl {
         super.layoutSubviews()
         track.frame = CGRect(x: 0, y: (bounds.height - 16) / 2, width: 32, height: 16)
         thumb.frame = CGRect(x: isOn ? 18 : 2, y: 2, width: 12, height: 12)
-        stateLabel.frame = CGRect(x: 40, y: (bounds.height - 16) / 2, width: 20, height: 16)
+        stateLabel.frame = CGRect(x: 40, y: (bounds.height - 16) / 2, width: 16, height: 16)
+        thumb.layer.shadowPath = UIBezierPath(roundedRect: thumb.bounds.insetBy(dx: 3, dy: 3),
+                                              cornerRadius: 3).cgPath
     }
 
     func setOn(_ value: Bool, animated: Bool) {
@@ -49,12 +57,12 @@ final class HayaseSwitch: UIControl {
             self.thumb.frame.origin.x = value ? 18 : 2
         }
         if animated && !UIAccessibility.isReduceMotionEnabled {
-            UIView.animate(withDuration: 0.15, delay: 0,
-                           options: [.beginFromCurrentState, .allowUserInteraction], animations: changes)
+            UIViewPropertyAnimator(duration: 0.15, controlPoint1: CGPoint(x: 0.4, y: 0),
+                                   controlPoint2: CGPoint(x: 0.2, y: 1), animations: changes).startAnimation()
         } else { changes() }
     }
 
-    override var isEnabled: Bool { didSet { alpha = isEnabled ? 1 : 0.5 } }
+    override var isEnabled: Bool { didSet { track.alpha = isEnabled ? 1 : 0.5 } }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         bounds.insetBy(dx: -6, dy: -14).contains(point)
@@ -67,6 +75,7 @@ final class HayaseSwitch: UIControl {
     }
 
     @objc private func toggle() {
+        guard isEnabled else { return }
         setOn(!isOn, animated: true)
         sendActions(for: .valueChanged)
     }

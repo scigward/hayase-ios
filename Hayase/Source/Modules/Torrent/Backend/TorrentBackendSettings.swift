@@ -82,12 +82,25 @@ struct TorrentBackendSettings: Encodable, Equatable {
     }
 
     private static func downloadPath(for location: String) -> String {
+        let url = downloadURL(for: location)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url.path
+    }
+
+    /// Selection must report failure before persisting or forwarding an unusable path to the client.
+    static func prepareDownloadLocation(_ location: String) throws {
+        let url = downloadURL(for: location)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        guard FileManager.default.isWritableFile(atPath: url.path) else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+    }
+
+    private static func downloadURL(for location: String) -> URL {
         let manager = FileManager.default
         let directory: FileManager.SearchPathDirectory = location == "documents" ? .documentDirectory : .cachesDirectory
         let base = manager.urls(for: directory, in: .userDomainMask).first
             ?? manager.temporaryDirectory
-        let url = base.appendingPathComponent("HayaseWebTorrent", isDirectory: true)
-        try? manager.createDirectory(at: url, withIntermediateDirectories: true)
-        return url.path
+        return base.appendingPathComponent("HayaseWebTorrent", isDirectory: true)
     }
 }

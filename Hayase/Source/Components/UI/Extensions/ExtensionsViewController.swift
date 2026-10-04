@@ -337,8 +337,8 @@ final class ExtensionsViewController: UIViewController {
         case "select":
             let sheet = UIAlertController(title: def.description, message: nil, preferredStyle: .actionSheet)
             for v in def.values ?? [] {
-                sheet.addAction(UIAlertAction(title: v, style: .default) { [weak self] _ in
-                    ExtensionService.shared.setOption(.string(v), key: key, for: config.id)
+                sheet.addAction(UIAlertAction(title: v.stringValue, style: .default) { [weak self] _ in
+                    ExtensionService.shared.setOption(v, key: key, for: config.id)
                     self?.reload()
                 })
             }
@@ -701,10 +701,11 @@ final class BadgeFlowView: UIView {
     private final class PaddedBadgeLabel: UILabel {
         let hPad: CGFloat = 12  // px-3
         let vPad: CGFloat = 2   // py-0.5
+        var cssLineHeight: CGFloat?
 
         override var intrinsicContentSize: CGSize {
             let base = super.intrinsicContentSize
-            return CGSize(width: base.width + hPad * 2, height: base.height + vPad * 2)
+            return CGSize(width: base.width + hPad * 2, height: (cssLineHeight ?? base.height) + vPad * 2)
         }
 
         override func drawText(in rect: CGRect) {
@@ -716,11 +717,13 @@ final class BadgeFlowView: UIView {
     private var measuredWidth: CGFloat = 0
     private let hSpacing: CGFloat = 8   // gap-2 = 8pt
     private var vSpacing: CGFloat = 4
+    private var centersFlags = false
 
-    func setItems(_ items: [Item], fontSize: CGFloat = 13, rowSpacing: CGFloat = 4,
+    func setItems(_ items: [Item], fontSize: CGFloat = 13, rowSpacing: CGFloat = 4, lineHeight: CGFloat? = nil,
                   background: UIColor = UIColor(white: 23/255, alpha: 1),
                   foreground: UIColor = UIColor(white: 212/255, alpha: 1)) {
         vSpacing = rowSpacing
+        centersFlags = lineHeight != nil
         setContentCompressionResistancePriority(.required, for: .vertical)
         labels.forEach { $0.removeFromSuperview() }
         labels = items.map { item in
@@ -730,6 +733,11 @@ final class BadgeFlowView: UIView {
                 l.text = text
                 l.font = .nunito(ofSize: fontSize, weight: .bold)
                 l.textColor = foreground
+                l.cssLineHeight = lineHeight
+                if let lineHeight {
+                    l.attributedText = CSSText.string(text, font: l.font, color: foreground,
+                        lineHeight: lineHeight, alignment: .center, lineBreak: .byClipping)
+                }
                 l.backgroundColor = color ?? background
                 l.layer.cornerRadius = 4                                // rounded = 4pt
                 l.clipsToBounds = true
@@ -785,14 +793,23 @@ final class BadgeFlowView: UIView {
             invalidateIntrinsicContentSize()
         }
         var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        var rowFlags: [UIView] = []
+        func centerRowFlags() {
+            guard centersFlags else { return }
+            for flag in rowFlags { flag.frame.origin.y += (rowH - flag.frame.height) / 2 }
+        }
         for l in labels {
             let sz = l.intrinsicContentSize
             if x > 0, x + sz.width > width {
+                centerRowFlags()
+                rowFlags.removeAll(keepingCapacity: true)
                 x = 0; y += rowH + vSpacing; rowH = 0
             }
             l.frame = CGRect(x: x, y: y, width: sz.width, height: sz.height)
+            if l is TwemojiFlagsView { rowFlags.append(l) }
             x += sz.width + hSpacing
             rowH = max(rowH, sz.height)
         }
+        centerRowFlags()
     }
 }

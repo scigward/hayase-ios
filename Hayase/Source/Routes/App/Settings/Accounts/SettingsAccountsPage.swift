@@ -40,11 +40,12 @@ final class HayaseAccountCardView: UIView {
     private let footerView = UIView()
     private let headerStack = UIStackView()
     private let avatarView = UIImageView()
+    private let avatarFallback = UILabel()
     private let nameLabel = UILabel()
     private let serviceLabel = UILabel()
     private var iconView: UIView?
-    private let loginButton = UIButton(type: .custom)
-    private let settingsButton = GhostButton(frame: .zero)
+    private let loginButton = SelectButton(frame: .zero)
+    private let settingsButton = SelectButton(frame: .zero)
     private let syncToggle = HayaseSwitch(hideState: true)
     private let syncLabel = SettingsTypography.label("Enable Sync", size: 14, lineHeight: 14, weight: .medium)
     private let discussionsIcon = UIImageView(image: UIImage.hayaseIcon("messages-square"))
@@ -83,6 +84,16 @@ final class HayaseAccountCardView: UIView {
         avatarView.layer.cornerRadius = 6
         avatarView.clipsToBounds = true
         avatarView.contentMode = .scaleAspectFill
+        // Avatar.Fallback remains visible while the image loads, or when no image is available.
+        avatarFallback.font = .nunito(ofSize: 16)
+        avatarFallback.textColor = UIColor.HayaseTheme.foreground
+        avatarFallback.textAlignment = .center
+        avatarFallback.backgroundColor = UIColor.HayaseTheme.muted
+        avatarFallback.layer.cornerRadius = 16
+        avatarFallback.clipsToBounds = true
+        avatarFallback.frame = avatarView.bounds
+        avatarFallback.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        avatarView.addSubview(avatarFallback)
         let avatarWidth = avatarView.widthAnchor.constraint(equalToConstant: 32)
         avatarWidth.priority = UILayoutPriority(999)
         avatarWidth.isActive = true
@@ -106,13 +117,15 @@ final class HayaseAccountCardView: UIView {
         pin(headerStack, to: headerView)
 
         loginButton.setTitle("Login", for: .normal)
+        loginButton.applySecondaryVariant()
         loginButton.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
         loginButton.setTitleColor(UIColor.HayaseTheme.secondaryForeground, for: .normal)
         loginButton.backgroundColor = UIColor.HayaseTheme.secondary
         loginButton.layer.cornerRadius = 6
         loginButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
         loginButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
-        settingsButton.setImage(UIImage.hayaseIcon("bolt"), for: .normal)
+        settingsButton.applyGhostVariant()
+        settingsButton.setLayeredIcon(.bolt, size: 18)
         settingsButton.tintColor = UIColor.HayaseTheme.foreground
         let settingsWidth = settingsButton.widthAnchor.constraint(equalToConstant: 36)
         settingsWidth.priority = UILayoutPriority(999)
@@ -139,6 +152,10 @@ final class HayaseAccountCardView: UIView {
         }
         discussionsIcon.accessibilityLabel = "Has Discussions"
         offlineIcon.accessibilityLabel = "Works Offline"
+        discussionsIcon.isUserInteractionEnabled = true
+        offlineIcon.isUserInteractionEnabled = true
+        discussionsIcon.attachTooltip("Has Discussions")
+        offlineIcon.attachTooltip("Works Offline")
         let footer = UIStackView(arrangedSubviews: [left, UIView(), right])
         footer.axis = .horizontal
         footer.alignment = .center
@@ -223,17 +240,25 @@ final class HayaseAccountCardView: UIView {
         nameLabel.font = .nunito(ofSize: 14)
         serviceLabel.isHidden = false
         avatarView.image = nil
+        avatarFallback.isHidden = false
+        avatarFallback.text = nil
 
         // Sync toggle
         syncToggle.setOn(mgr.isSyncEnabled(for: tracker), animated: false)
 
         // Login state
         if tracker == .local {
-            nameLabel.text = "Other"
-            serviceLabel.text = "Local"
+            nameLabel.attributedText = CSSText.string("Other", font: .nunito(ofSize: 14),
+                color: UIColor.HayaseTheme.foreground, lineHeight: 20)
+            serviceLabel.attributedText = CSSText.string("Local", font: .nunito(ofSize: 9),
+                color: UIColor.HayaseTheme.mutedForeground, lineHeight: 9 * 1.375)
             avatarView.isHidden = true
         } else if let viewer = mgr.viewer(for: tracker) {
-            nameLabel.text = viewer.name
+            nameLabel.attributedText = CSSText.string(viewer.name, font: .nunito(ofSize: 14),
+                color: UIColor.HayaseTheme.foreground, lineHeight: 20)
+            serviceLabel.attributedText = CSSText.string(tracker.displayName, font: .nunito(ofSize: 9),
+                color: UIColor.HayaseTheme.mutedForeground, lineHeight: 9 * 1.375)
+            avatarFallback.text = viewer.name
             avatarView.isHidden = false
             avatarView.image = nil
             // Load avatar asynchronously
@@ -243,6 +268,7 @@ final class HayaseAccountCardView: UIView {
                     DispatchQueue.main.async {
                         guard let self, self.avatarRequestID == requestID else { return }
                         self.avatarView.image = image
+                        self.avatarFallback.isHidden = true
                     }
                 }.resume()
             }
@@ -251,6 +277,8 @@ final class HayaseAccountCardView: UIView {
         } else {
             nameLabel.text = "Not logged in"
             nameLabel.font = .nunito(ofSize: 16)
+            nameLabel.attributedText = CSSText.string("Not logged in", font: .nunito(ofSize: 16),
+                color: UIColor.HayaseTheme.foreground, lineHeight: 24)
             serviceLabel.isHidden = true
             avatarView.isHidden = true
             loginButton.setTitle("Login", for: .normal)
@@ -365,28 +393,30 @@ extension HayaseAccountCardView {
 
     func loginKitsu() {
         guard let vc = parentVC else { return }
-        let dialog = SettingsDialogViewController(title: "Kitsu Login")
+        let dialog = SettingsDialogViewController(title: "")
+        let form = SettingsKitsuLoginForm(frame: .zero)
+        form.addArrangedSubview(SettingsTypography.label("Kitsu Login", size: 20, lineHeight: 28, weight: .bold))
         let email = SettingsInputControl(value: "", placeholder: "email@website.com", width: 440)
         email.input.keyboardType = .emailAddress
         let password = SettingsInputControl(value: "", placeholder: "**************", width: 440, secure: true)
         for (title, input) in [("Login", email), ("Password", password)] {
-            let row = UIStackView(arrangedSubviews: [SettingsTypography.label(title, size: 14, lineHeight: 20, weight: .bold), input])
+            let row = UIStackView(arrangedSubviews: [SettingsTypography.label(title, size: 14, lineHeight: 21, weight: .bold), input])
             row.axis = .vertical
             row.spacing = 8
-            dialog.content.addArrangedSubview(row)
+            form.addArrangedSubview(row)
         }
-        dialog.content.addArrangedSubview(SettingsTypography.label(
+        form.addArrangedSubview(SettingsTypography.label(
             "Your password is not stored in the app, it is sent directly to Kitsu for authentication.",
             size: 14, lineHeight: 20, color: UIColor.HayaseTheme.mutedForeground))
-        let login = SettingsTypography.button("Login")
+        let login = SettingsTypography.button("Login", secondary: true)
         login.addAction(UIAction { [weak email, weak password] _ in
             // `ksclient.login(kitsuLogin, kitsuPassword)`: the dialog stays, only Cancel closes it
             KitsuAuth.login(email: email?.input.text ?? "", password: password?.input.text ?? "") { _ in }
         }, for: .touchUpInside)
         let cancel = SettingsTypography.button("Cancel", destructive: true)
         cancel.addAction(UIAction { [weak dialog] _ in dialog?.close() }, for: .touchUpInside)
-        dialog.content.addArrangedSubview(login)
-        dialog.content.addArrangedSubview(cancel)
+        form.addArrangedSubview(SettingsKitsuLoginFooter(login: login, cancel: cancel))
+        dialog.content.addArrangedSubview(form)
         vc.present(dialog, animated: false)
     }
 
@@ -458,6 +488,58 @@ extension HayaseAccountCardView {
 
 }
 
+/// The login form's `space-y-4 px-4 sm:px-6 w-full`, inside Dialog.Header.
+private final class SettingsKitsuLoginForm: UIStackView, SettingsResponsiveView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        axis = .vertical
+        spacing = 16
+        isLayoutMarginsRelativeArrangement = true
+        updateLayout(viewportWidth: 0)
+    }
+
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func updateLayout(viewportWidth: CGFloat) {
+        let padding: CGFloat = viewportWidth >= 640 ? 24 : 16
+        layoutMargins = UIEdgeInsets(top: 0, left: padding, bottom: 0, right: padding)
+        arrangedSubviews.compactMap { $0 as? SettingsResponsiveView }
+            .forEach { $0.updateLayout(viewportWidth: viewportWidth) }
+    }
+}
+
+/// `py-3 gap-3 flex flex-col sm:flex-row-reverse`: Login first on phones, on the right at sm.
+private final class SettingsKitsuLoginFooter: UIStackView, SettingsResponsiveView {
+    private let login: UIButton
+    private let cancel: UIButton
+    private let spacer = UIView()
+    private var horizontal: Bool?
+
+    init(login: UIButton, cancel: UIButton) {
+        self.login = login
+        self.cancel = cancel
+        super.init(frame: .zero)
+        spacing = 12
+        isLayoutMarginsRelativeArrangement = true
+        layoutMargins = UIEdgeInsets(top: 12, left: 0, bottom: 12, right: 0)
+        updateLayout(viewportWidth: 0)
+    }
+
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func updateLayout(viewportWidth: CGFloat) {
+        let next = viewportWidth >= 640
+        guard horizontal != next else { return }
+        horizontal = next
+        login.setContentHuggingPriority(next ? .required : .defaultLow, for: .horizontal)
+        cancel.setContentHuggingPriority(next ? .required : .defaultLow, for: .horizontal)
+        arrangedSubviews.forEach { removeArrangedSubview($0); $0.removeFromSuperview() }
+        axis = next ? .horizontal : .vertical
+        let ordered: [UIView] = next ? [spacer, cancel, login] : [login, cancel]
+        ordered.forEach { addArrangedSubview($0) }
+    }
+}
+
 /// Provides the presentation anchor window for ASWebAuthenticationSession.
 final class AniListAuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
     private weak var anchor: UIViewController?
@@ -480,6 +562,7 @@ extension HayaseAccountCardView {
 
     func showAniListSettings() {
         let dialog = SettingsDialogViewController(title: "AniList Settings", maximumWidth: 896)
+        dialog.centersCompactHeading = true
         dialog.panelColor = UIColor.HayaseTheme.background   // bg-background
         let viewer = TrackerAccountManager.shared.viewer(for: .anilist)
         let languages = [
@@ -488,6 +571,8 @@ extension HayaseAccountCardView {
             ("ENGLISH_STYLISED", "English Stylised"), ("NATIVE_STYLISED", "Native Stylised"),
         ]
         let language = ComboBox(frame: .zero)
+        language.layer.borderWidth = 1
+        language.layer.borderColor = UIColor.HayaseTheme.input.cgColor
         let current = viewer?.titleLanguage ?? "ROMAJI"
         language.configure(text: languages.first(where: { $0.0 == current })?.1 ?? current, placeholder: false)
         language.isEnabled = viewer != nil
@@ -537,6 +622,7 @@ extension HayaseAccountCardView {
 
     func showMALSettings() {
         let dialog = SettingsDialogViewController(title: "MyAnimeList Settings", maximumWidth: 896)
+        dialog.centersCompactHeading = true
         dialog.panelColor = UIColor.HayaseTheme.background   // bg-background
         dialog.content.addArrangedSubview(clientIDCard(service: "MyAnimeList", value: MALAuth.clientID, width: 384) {
             MALAuth.clientID = $0
@@ -556,6 +642,7 @@ extension HayaseAccountCardView {
 
     func showSimklSettings() {
         let dialog = SettingsDialogViewController(title: "Simkl Settings", maximumWidth: 896)
+        dialog.centersCompactHeading = true
         dialog.panelColor = UIColor.HayaseTheme.background   // bg-background
         let identifier = SettingsInputControl(value: SimklAuth.clientID, placeholder: "Simkl Client ID", width: 384)
         identifier.onChange = { SimklAuth.clientID = $0 }

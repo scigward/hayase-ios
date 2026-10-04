@@ -224,8 +224,15 @@ final class ExtensionService {
         options[id]?.options[key] = value
     }
 
+    /// An empty number input binds to undefined upstream, removing an override rather than writing null.
+    func clearOption(key: String, for id: String) {
+        options[id]?.options.removeValue(forKey: key)
+    }
+
     func sourceCode(for id: String) async throws -> String {
         guard let config = configs[id] else { throw ExtensionError.invalidURL("Invalid extension source URL") }
+        // ExtensionSettings reads the installed copy, not a potentially newer remote revision.
+        if let source = cachedCode(for: id) { return source }
         return try await sourceCode(of: config)
     }
 

@@ -23,6 +23,7 @@ final class LayeredIconView: UIView {
         case messages
         case download
         case bolt
+        case code
         /// login.svelte is the download icon turned a quarter to the left.
         case login
     }
@@ -199,6 +200,13 @@ final class LayeredIconView: UIView {
         case .bolt:
             root.addSublayer(shape("M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"))
             root.addSublayer(shape(circle(12, 12, 4)))
+        case .code:
+            for data in ["m18 16 4-4-4-4", "m6 8-4 4 4 4"] {
+                let path = shape(data)
+                root.addSublayer(path)
+                targets.append(path)
+            }
+            root.addSublayer(shape("m14.5 4-5 16"))
         }
     }
 
@@ -244,6 +252,18 @@ final class LayeredIconView: UIView {
         case .bolt:
             guard selected else { return }
             root.add(SelectButton.IconAnimation.boltSpin.makeAnimation(), forKey: Self.selectKey)
+        case .code:
+            guard selected else { return }
+            // Code.svelte: the two brackets move out and back independently; the slash stays still.
+            for (index, path) in targets.enumerated() {
+                let direction: Double = index == 0 ? 1 : -1
+                let animation = CAKeyframeAnimation(keyPath: "transform.translation.x")
+                animation.values = [0, 1.5 * direction, -0.75 * direction, 0]
+                animation.keyTimes = [0, 1.0 / 3, 2.0 / 3, 1].map { NSNumber(value: $0) }
+                animation.timingFunctions = (0..<3).map { _ in CAMediaTimingFunction(name: .easeInEaseOut) }
+                animation.duration = 0.6
+                path.add(animation, forKey: Self.selectKey)
+            }
         }
     }
 

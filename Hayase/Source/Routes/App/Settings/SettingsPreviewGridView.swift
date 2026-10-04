@@ -31,12 +31,7 @@ final class SettingsPreviewGridView: UIView, SettingsResponsiveView {
         cardView.translatesAutoresizingMaskIntoConstraints = false
         self.addSubview(cardView)
 
-        titleLabel.font = .nunito(ofSize: 14, weight: .bold)
-        titleLabel.textColor = UIColor.HayaseTheme.foreground
         titleLabel.numberOfLines = 0
-
-        descriptionLabel.font = .nunito(ofSize: 12)
-        descriptionLabel.textColor = UIColor.HayaseTheme.mutedForeground
         descriptionLabel.numberOfLines = 0
 
         gridStack.axis = .vertical
@@ -68,8 +63,11 @@ final class SettingsPreviewGridView: UIView, SettingsResponsiveView {
                                twoColumns: Bool) {
         configuration = (title, description, kind, selectedValue)
         currentTwoColumns = twoColumns
-        titleLabel.text = title
-        descriptionLabel.text = description
+        titleLabel.font = .nunito(ofSize: 14, weight: .bold)
+        titleLabel.attributedText = SettingsTypography.label(title, size: 14, lineHeight: 21, weight: .bold).attributedText
+        descriptionLabel.font = .nunito(ofSize: 12, weight: .medium)
+        descriptionLabel.attributedText = SettingsTypography.label(description, size: 12, lineHeight: 16,
+            weight: .medium, color: UIColor.HayaseTheme.mutedForeground).attributedText
         clearGrid()
         tileValues.removeAll()
 
@@ -129,20 +127,15 @@ final class SettingsPreviewGridView: UIView, SettingsResponsiveView {
         tile.accessibilityLabel = title
         tile.backgroundColor = selected ? UIColor.HayaseTheme.accent : .clear
 
-        let name = previewLabel(title, size: 20, weight: .bold, color: UIColor.HayaseTheme.foreground)
-        let sampleLabel = previewLabel(sample, size: title == "None" ? 36 : 17, weight: .bold, color: .white)
+        let name = previewLabel(title, size: 20, lineHeight: 28, weight: .bold, color: UIColor.HayaseTheme.foreground)
+        let sampleLabel = previewLabel(sample, size: title == "None" ? 36 : 17,
+            lineHeight: title == "None" ? 40 : 24, weight: .medium, color: .white)
         sampleLabel.textAlignment = .center
         sampleLabel.isHidden = image != nil
-        sampleLabel.layer.shadowColor = UIColor.black.cgColor
-        sampleLabel.layer.shadowOpacity = 1
-        sampleLabel.layer.shadowRadius = 2
-        sampleLabel.layer.shadowOffset = CGSize(width: 1, height: 1)
 
         let video = UIView()
         video.isUserInteractionEnabled = false
         video.backgroundColor = .clear
-        video.layer.cornerRadius = 4
-        video.clipsToBounds = true
         video.translatesAutoresizingMaskIntoConstraints = false
         let imageView = UIImageView(image: image)
         imageView.contentMode = .scaleAspectFill
@@ -178,53 +171,80 @@ final class SettingsPreviewGridView: UIView, SettingsResponsiveView {
     private func makeThemeTile(title: String, palette: SettingsThemePreviewPalette) -> UIView {
         let tile = previewContainer(selected: false, value: nil)
         tile.backgroundColor = palette.background.withAlphaComponent(0.4)
-        let name = previewLabel(title, size: 20, weight: .bold, color: palette.foreground)
+        let name = previewLabel(title, size: 20, lineHeight: 28, weight: .bold, color: palette.foreground)
         let sample = SettingsTypography.label("The quick brown fox", size: 12, lineHeight: 16,
-            color: palette.foreground.withAlphaComponent(0.85))
-        let muted = SettingsTypography.label("Muted description text", size: 10, lineHeight: 15, color: palette.mutedForeground)
+            weight: .medium, color: palette.foreground.withAlphaComponent(0.85))
+        let muted = SettingsTypography.label("Muted description text", size: 10, lineHeight: 15,
+            weight: .medium, color: palette.mutedForeground)
         let buttons = UIStackView(arrangedSubviews: [
-            miniButton("Primary", background: palette.primary, foreground: palette.primaryForeground),
-            miniButton("Secondary", background: palette.secondary, foreground: palette.foreground),
+            miniButton("Primary", background: palette.primary, foreground: palette.primaryForeground, shadow: false),
+            miniButton("Secondary", background: palette.secondary, foreground: palette.foreground, shadow: true),
             miniButton("Ghost", background: .clear, foreground: palette.foreground),
         ])
         buttons.spacing = 6
-        let input = SettingsTypography.label("Sample", size: 10, lineHeight: 15, color: palette.foreground)
-        input.backgroundColor = palette.background
+        let input = UIView()
+        input.backgroundColor = palette.muted
         input.layer.cornerRadius = 6
         input.layer.borderWidth = 1
         input.layer.borderColor = palette.input.cgColor
+        SettingsTypography.applyButtonShadow(to: input, small: true)
         input.heightAnchor.constraint(equalToConstant: 24).isActive = true
-        input.text = "   Sample"
+        let inputLabel = SettingsTypography.label("Sample", size: 10, lineHeight: 15,
+            weight: .medium, color: palette.foreground)
+        inputLabel.translatesAutoresizingMaskIntoConstraints = false
+        input.addSubview(inputLabel)
+        NSLayoutConstraint.activate([
+            inputLabel.leadingAnchor.constraint(equalTo: input.leadingAnchor, constant: 12),
+            inputLabel.trailingAnchor.constraint(equalTo: input.trailingAnchor, constant: -12),
+            inputLabel.centerYAnchor.constraint(equalTo: input.centerYAnchor),
+        ])
         let switchTrack = UIView()
         switchTrack.backgroundColor = palette.input
         switchTrack.layer.cornerRadius = 8
         switchTrack.widthAnchor.constraint(equalToConstant: 32).isActive = true
         switchTrack.heightAnchor.constraint(equalToConstant: 16).isActive = true
+        SettingsTypography.applyButtonShadow(to: switchTrack, small: true)
         let thumb = UIView(frame: CGRect(x: 2, y: 2, width: 12, height: 12))
         thumb.backgroundColor = palette.background
         thumb.layer.cornerRadius = 6
+        // The same shadow-lg token as the shared HayaseSwitch thumb.
+        thumb.layer.shadowColor = UIColor.black.cgColor
+        thumb.layer.shadowOpacity = 0.1
+        thumb.layer.shadowOffset = CGSize(width: 0, height: 10)
+        thumb.layer.shadowRadius = 7.5
+        thumb.layer.shadowPath = UIBezierPath(roundedRect: thumb.bounds.insetBy(dx: 3, dy: 3), cornerRadius: 3).cgPath
         switchTrack.addSubview(thumb)
         let slider = UIView()
-        slider.backgroundColor = palette.primary.withAlphaComponent(0.2)
-        slider.layer.cornerRadius = 3
+        // Melt UI absolutely positions its 16pt thumb, so the web slider's
+        // layout height remains the 6pt track height, with the thumb overflowing.
         slider.heightAnchor.constraint(equalToConstant: 6).isActive = true
+        let sliderTrack = UIView()
+        sliderTrack.backgroundColor = palette.primary.withAlphaComponent(0.2)
+        sliderTrack.layer.cornerRadius = 3
+        sliderTrack.clipsToBounds = true
+        sliderTrack.translatesAutoresizingMaskIntoConstraints = false
+        slider.addSubview(sliderTrack)
         let fill = UIView()
         fill.backgroundColor = palette.primary
-        fill.layer.cornerRadius = 3
         fill.translatesAutoresizingMaskIntoConstraints = false
         let sliderThumb = UIView()
         sliderThumb.backgroundColor = palette.background
         sliderThumb.layer.borderWidth = 1
         sliderThumb.layer.borderColor = palette.primary.withAlphaComponent(0.5).cgColor
         sliderThumb.layer.cornerRadius = 8
+        SettingsTypography.applyButtonShadow(to: sliderThumb, small: false)
         sliderThumb.translatesAutoresizingMaskIntoConstraints = false
-        slider.addSubview(fill)
+        sliderTrack.addSubview(fill)
         slider.addSubview(sliderThumb)
         NSLayoutConstraint.activate([
-            fill.leadingAnchor.constraint(equalTo: slider.leadingAnchor),
-            fill.topAnchor.constraint(equalTo: slider.topAnchor),
-            fill.bottomAnchor.constraint(equalTo: slider.bottomAnchor),
-            fill.widthAnchor.constraint(equalTo: slider.widthAnchor, multiplier: 0.4),
+            sliderTrack.leadingAnchor.constraint(equalTo: slider.leadingAnchor),
+            sliderTrack.trailingAnchor.constraint(equalTo: slider.trailingAnchor),
+            sliderTrack.centerYAnchor.constraint(equalTo: slider.centerYAnchor),
+            sliderTrack.heightAnchor.constraint(equalToConstant: 6),
+            fill.leadingAnchor.constraint(equalTo: sliderTrack.leadingAnchor),
+            fill.topAnchor.constraint(equalTo: sliderTrack.topAnchor),
+            fill.bottomAnchor.constraint(equalTo: sliderTrack.bottomAnchor),
+            fill.widthAnchor.constraint(equalTo: sliderTrack.widthAnchor, multiplier: 0.4),
             sliderThumb.centerXAnchor.constraint(equalTo: fill.trailingAnchor),
             sliderThumb.centerYAnchor.constraint(equalTo: slider.centerYAnchor),
             sliderThumb.widthAnchor.constraint(equalToConstant: 16),
@@ -239,7 +259,9 @@ final class SettingsPreviewGridView: UIView, SettingsResponsiveView {
         body.isUserInteractionEnabled = false
         tile.addSubview(name)
         tile.addSubview(body)
-        let bodyWidth = body.widthAnchor.constraint(equalToConstant: 212)
+        let bodyWidth = body.widthAnchor.constraint(lessThanOrEqualTo: tile.widthAnchor, constant: -80)
+        // Like CSS flex children, the sample buttons may overflow an exceptionally
+        // narrow tile rather than breaking required Auto Layout constraints.
         bodyWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([
             name.topAnchor.constraint(equalTo: tile.topAnchor, constant: 16),
@@ -247,8 +269,9 @@ final class SettingsPreviewGridView: UIView, SettingsResponsiveView {
             body.topAnchor.constraint(equalTo: tile.topAnchor, constant: 48),
             body.bottomAnchor.constraint(equalTo: tile.bottomAnchor, constant: -32),
             body.centerXAnchor.constraint(equalTo: tile.centerXAnchor),
+            body.widthAnchor.constraint(lessThanOrEqualToConstant: 212),
+            // The item has px-4 in addition to the body's px-6.
             bodyWidth,
-            body.widthAnchor.constraint(lessThanOrEqualTo: tile.widthAnchor, constant: -48),
             input.widthAnchor.constraint(equalTo: body.widthAnchor),
             slider.widthAnchor.constraint(equalTo: body.widthAnchor),
         ])
@@ -275,25 +298,33 @@ final class SettingsPreviewGridView: UIView, SettingsResponsiveView {
 
     private func previewLabel(_ text: String,
                               size: CGFloat,
+                              lineHeight: CGFloat,
                               weight: UIFont.Weight,
                               color: UIColor) -> UILabel {
-        let label = UILabel()
-        label.text = text
-        label.font = .nunito(ofSize: size, weight: weight)
-        label.textColor = color
+        let label = SettingsTypography.label(text, size: size, lineHeight: lineHeight, weight: weight, color: color)
         label.numberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }
 
-    private func miniButton(_ title: String, background: UIColor, foreground: UIColor) -> UILabel {
-        let label = previewLabel(title, size: 12, weight: .medium, color: foreground)
+    private func miniButton(_ title: String, background: UIColor, foreground: UIColor, shadow: Bool? = nil) -> UIView {
+        let container = UIView()
+        container.layer.cornerRadius = 4
+        if let shadow { SettingsTypography.applyButtonShadow(to: container, small: shadow) }
+        let label = previewLabel(title, size: 12, lineHeight: 16, weight: .medium, color: foreground)
         label.backgroundColor = background
         label.textAlignment = .center
-        label.layer.cornerRadius = 2
+        label.layer.cornerRadius = 4
         label.layer.masksToBounds = true
-        label.widthAnchor.constraint(equalToConstant: ceil(label.intrinsicContentSize.width) + 16).isActive = true
-        label.heightAnchor.constraint(equalToConstant: 25.6).isActive = true
-        return label
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            container.widthAnchor.constraint(equalToConstant: ceil(label.intrinsicContentSize.width) + 16),
+            container.heightAnchor.constraint(equalToConstant: 25.6),
+            label.topAnchor.constraint(equalTo: container.topAnchor),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        return container
     }
 }

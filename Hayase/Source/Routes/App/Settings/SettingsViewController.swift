@@ -17,7 +17,6 @@ final class SettingsViewController: UIViewController {
     var scaleCountdown = 10
     var scaleTimer: Timer?
     weak var scaleAlert: SettingsDialogViewController?
-    weak var scaleMessageLabel: UILabel?
 
     init() { super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) {
@@ -27,6 +26,15 @@ final class SettingsViewController: UIViewController {
     }
 
     override func loadView() { view = settingsView }
+
+    override var keyCommands: [UIKeyCommand]? {
+        // Melt slider endpoint shortcuts; the event is still dispatched from the focused control.
+        let endpoints: [UIKeyCommand] = [.keydown(UIKeyCommand.inputHome), .keydown(UIKeyCommand.inputEnd)]
+        return endpoints + [KeyboardEvent.Key.arrowLeft, KeyboardEvent.Key.arrowRight,
+         KeyboardEvent.Key.arrowUp, KeyboardEvent.Key.arrowDown].map {
+            UIKeyCommand.keydown($0, modifierFlags: .command)
+        }
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
