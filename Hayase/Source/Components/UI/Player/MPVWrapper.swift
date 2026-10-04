@@ -242,22 +242,25 @@ final class MPVWrapper {
         case "gandhisans":
             font = "Gandhi Sans"
             spacing = "0.2"
-            scaleX = "98"
+            scaleX = "0.98"
         case "notosans":
             font = "Noto Sans"
             spacing = "0"
-            scaleX = "99"
+            scaleX = "0.99"
         default:
             font = "Roboto Medium"
             spacing = "0"
-            scaleX = "100"
+            scaleX = "1"
         }
 
+        // libass takes the scales of an override as ratios (1 is 100%, as in `ASSStyle`), not as the percentages of a
+        // style line: `ScaleX=99` makes every glyph 99 times wider. SecondaryColour is the interface's 0xFF000000
+        // (red, opaque) in the `&HAABBGGRR` form.
         let overrides = [
             "FontName=\(font)", "FontSize=72", "PrimaryColour=&H00FFFFFF",
-            "SecondaryColour=&HFF000000", "OutlineColour=&H00000000",
+            "SecondaryColour=&H000000FF", "OutlineColour=&H00000000",
             "BackColour=&H00000000", "Bold=1", "Italic=0", "Underline=0",
-            "StrikeOut=0", "ScaleX=\(scaleX)", "ScaleY=100",
+            "StrikeOut=0", "ScaleX=\(scaleX)", "ScaleY=1",
             "Spacing=\(spacing)", "Angle=0", "BorderStyle=1", "Outline=4",
             "Shadow=0", "Alignment=2", "MarginL=135", "MarginR=135", "MarginV=50",
         ].joined(separator: ",")
