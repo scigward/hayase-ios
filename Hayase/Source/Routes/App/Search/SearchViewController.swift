@@ -1,6 +1,6 @@
 //
 //  SearchViewController.swift
-//  NyaiS
+//  Hayase
 //
 //  Mirrors: src/routes/app/search/+page.svelte and src/lib/components/ui/cards/query.svelte,
 //  trace.svelte and episode.svelte

@@ -18,6 +18,8 @@ and `Icon.svelte` in https://github.com/wobsoriano/svelte-sonner/tree/v0.3.28).
 | Failed to rescan torrents / Failed to delete torrents | Torrent library actions |
 | Low disk space | Successful WebTorrent startup, asynchronous upstream capacity check; threshold 1e9 bytes |
 | Torrent Process Error! / Failed to add NZB | Existing bridge error events and metadata failures |
+| Error fetching NZB / webseed / subtitles from {extension} | `ExtensionService` (`nzbURLs`, `webSeeds`, `subtitlesQuery`, through `querySources` and `callSources`), titled with the name of the extension |
+| Saved screenshot to clipboard (with its Download action) / Failed to copy screenshot to clipboard. | `VideoPlayerViewController.captureScreenshot`; the toast has the action button of svelte-sonner. The failure has no download behind it: there is no frame to save |
 
 Error titles and supplied durations come from the interface. API error bodies are
 not replaced by generic credential advice. Native transport/decoding failures retain
@@ -32,10 +34,9 @@ also remain status indicators. Neither is a toast in the interface.
 These are inventoried, not claimed as wired. Implementing them requires the
 underlying feature, not an unused toast call:
 
-- Extension `nzbQuery`, `httpQuery`, and `subtitlesQuery` fetch errors: native
-  ExtensionService currently only queries torrent sources.
-- Explicit `createNZB` / `createHTTP` webseed additions: no Swift RPC callers.
-  Optional NNTP manager failures are already reported by the bridge.
+- Explicit `createNZB` / `createHTTP` webseed additions: made by
+  `WebTorrentWebSeeds.swift` after the extension queries; optional NNTP manager
+  failures are reported by the bridge.
 - MAL/Kitsu/Simkl full-list synchronization errors and missing sync credentials:
   native providers currently expose authentication, not those full sync operations.
 - Plugin errors: no native web-plugin runner.
@@ -44,8 +45,8 @@ underlying feature, not an unused toast call:
   sandbox locations, not the web directory picker/setup route.
 - Theme clipboard errors: theme functionality remains outside the requested scope.
 - Internal AniList API mode errors: no native unsafe-internal-API action.
-- Browser mobile playback/audio-codec setup and screenshot clipboard fallback:
-  native playback uses MPV rather than these browser APIs.
+- Browser mobile playback and audio-codec setup (`Mobile playback setup failed`,
+  `Audio Codec Unsupported`): native playback uses MPV rather than these browser APIs.
 
 ## Shared presentation
 

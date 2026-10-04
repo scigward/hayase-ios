@@ -180,7 +180,15 @@ final class MiniPlayerManager {
     /// Mirrors Hayase's `server.active` store: when the app relaunches, if this
     /// key has data the mini-player is restored automatically (just like Hayase
     /// re-mounts the player component on reload when a torrent session exists).
-    private static let sessionStateKey = "nyais_miniPlayerSessionState"
+    private static let sessionStateKey: String = {
+        // the session of the earlier name is taken over, once
+        let defaults = UserDefaults.standard
+        if let legacy = defaults.dictionary(forKey: "nyais_miniPlayerSessionState") {
+            if defaults.object(forKey: "miniPlayerSessionState") == nil { defaults.set(legacy, forKey: "miniPlayerSessionState") }
+            defaults.removeObject(forKey: "nyais_miniPlayerSessionState")
+        }
+        return "miniPlayerSessionState"
+    }()
 
     // MARK: - Init
 

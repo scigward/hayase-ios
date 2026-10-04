@@ -1,6 +1,6 @@
 //
 //  AppDelegate.swift
-//  FinalProject
+//  Hayase
 //
 //  Created by Charles Augustine.
 //

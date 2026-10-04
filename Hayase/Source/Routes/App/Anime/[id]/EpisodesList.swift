@@ -1554,7 +1554,7 @@ extension AnimeDetailViewController {
     private static var _fillerMap: [Int: Set<Int>] = [:]
     private static var _fillerMapLoaded = false
     private static var _fillerMapCallbacks: [([Int: Set<Int>]) -> Void] = []
-    private static let _fillerQueue = DispatchQueue(label: "com.nyais.fillerCache")
+    private static let _fillerQueue = DispatchQueue(label: "app.hayase.fillerCache")
 
     static func loadFillerSet(for anilistId: Int, completion: @escaping (Set<Int>) -> Void) {
         _fillerQueue.async {
