@@ -315,6 +315,38 @@ final class ExtensionService {
         }
     }
 
+    // MARK: - Extensions.subtitlesQuery (mirrors extensions.ts)
+
+    /// What a subtitle extension answers with: where the file is, and what to call it.
+    struct SubtitleResult {
+        let url: String
+        let language: String
+    }
+
+    /// The subtitle files the enabled "subtitle" extensions have for an episode. A timeout is swallowed
+    /// and any other failure is shown per extension.
+    func subtitlesQuery(item: AnimeItem, episode: Int) async -> [SubtitleResult] {
+        await readyTask?.value
+
+        let sources = workers.compactMap { id, worker -> (worker: ExtensionWorker, config: ExtensionConfig, options: [String: Any])? in
+            guard options[id]?.enabled == true, let config = configs[id], config.type == "subtitle" else { return nil }
+            return (worker, config, options[id]?.options.mapValues(\.jsonCompatible) ?? [:])
+        }
+        guard !sources.isEmpty else { return [] }
+
+        // `_getQueryOptions(media, episode)`: the anime query without resolution and exclusions
+        let query = await makeQuery(for: item, episode: episode, resolution: "").toDict()
+            .filter { $0.key != "resolution" && $0.key != "exclusions" }
+
+        return await callSources(sources, method: "single", query: query, errorTitle: "Error fetching subtitles from") { (raw: Any, _: ExtensionConfig) -> [SubtitleResult] in
+            guard let list = raw as? [[String: Any]] else { return [] }
+            return list.compactMap { entry -> SubtitleResult? in
+                guard let url = entry["url"] as? String, let language = entry["language"] as? String else { return nil }
+                return SubtitleResult(url: url, language: language)
+            }
+        }
+    }
+
     /// Calls `single` or `batch` on every enabled extension of `type`. Timeouts
     /// are swallowed and other failures are shown per extension, as in extensions.ts.
     private func querySources<T>(type: String,
@@ -353,6 +385,16 @@ final class ExtensionService {
             .merging(["hash": hash, "name": name]) { $1 }
             .merging(fileQuery) { $1 }
 
+        return await callSources(sources, method: method, query: query, errorTitle: errorTitle, decode: decode)
+    }
+
+    /// Asks every source the same question; a timeout is swallowed and any other failure is shown per
+    /// extension, as in extensions.ts.
+    private func callSources<T>(_ sources: [(worker: ExtensionWorker, config: ExtensionConfig, options: [String: Any])],
+                                method: String,
+                                query: [String: Any],
+                                errorTitle: String,
+                                decode: (Any, ExtensionConfig) -> [T]) async -> [T] {
         var results: [T] = []
         await withTaskGroup(of: (config: ExtensionConfig, result: Result<Any, Error>).self) { group in
             for source in sources {
@@ -674,6 +716,7 @@ final class ExtensionService {
                     }
                 }
             }
+            addLocalLibraryTask(to: &group, mediaID: query.anilistId, episode: query.episode)
 
             for await chunk in group {
                 if let error = chunk.error {
@@ -707,6 +750,41 @@ final class ExtensionService {
         let method: String
         let results: [TorrentResult]
         let error: Error?
+    }
+
+    /// `native.library()` as the extension `local`: what the library holds for this media and episode comes
+    /// next to the results of the extensions, whether or not any extension lists it, and with no connection.
+    private func addLocalLibraryTask(to group: inout TaskGroup<SearchChunk>, mediaID: Int, episode: Int) {
+        group.addTask { @MainActor in
+            await withCheckedContinuation { (continuation: CheckedContinuation<SearchChunk, Never>) in
+                TorrentBackendManager.shared.webTorrentLibrary { result in
+                    switch result {
+                    case .success(let entries):
+                        let results = entries
+                            .filter { $0.mediaID == mediaID && $0.episode == episode }
+                            .map { entry -> TorrentResult in
+                                var local = TorrentResult(title: entry.name.isEmpty ? entry.hash : entry.name,
+                                                          link: entry.hash, hash: entry.hash)
+                                local.accuracy = "medium"
+                                local.size = Int64(clamping: entry.size)
+                                local.type = entry.files > 1 ? "batch" : nil
+                                local.extensionIds = ["local"]
+                                local.extensionOrder = ["local"]
+                                // `new Date(entry.date)`: the library dates are milliseconds
+                                if let date = entry.date, date > 0 {
+                                    local.date = Date(timeIntervalSince1970: date / (date > 10_000_000_000 ? 1000 : 1))
+                                }
+                                return local
+                            }
+                        continuation.resume(returning: SearchChunk(extensionId: "local", method: "library",
+                                                                   results: results, error: nil))
+                    case .failure(let error):
+                        continuation.resume(returning: SearchChunk(extensionId: "local", method: "library",
+                                                                   results: [], error: error))
+                    }
+                }
+            }
+        }
     }
 
     private func addSearchTask(to group: inout TaskGroup<SearchChunk>,

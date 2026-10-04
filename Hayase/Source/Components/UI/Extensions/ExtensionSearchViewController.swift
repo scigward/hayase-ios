@@ -13,6 +13,7 @@
 
 import UIKit
 import CoreData
+import UniformTypeIdentifiers
 
 private func torrentFileIndex<T: BinaryInteger>(from value: T?) -> UInt? {
     guard let value else { return nil }
@@ -261,6 +262,8 @@ final class ExtensionSearchViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // `<svelte:window on:drop={handleTransfer} on:paste={handleTransfer}>`: a torrent file or its name dropped on the dialog
+        view.addInteraction(UIDropInteraction(delegate: self))
         // server.downloaded is a store: results re-rank and re-mark as it changes.
         NotificationCenter.default.addObserver(self, selector: #selector(downloadedDidChange),
                                                name: WebTorrentDownloaded.didChange, object: nil)
@@ -1014,15 +1017,8 @@ final class ExtensionSearchViewController: UIViewController {
     @objc private func filterChanged() {
         stopProgressAnimation()
         filterText = filterField.text ?? ""
-        // Detect magnet link
-        let text = filterText
-        if text.lowercased().hasPrefix("magnet:") {
-            let magnetResult = TorrentResult(title: "Magnet Link", link: text, hash: text,
-                                             seeders: 0, leechers: 0,
-                                             accuracy: "high", size: 0)
-            confirmDownload(magnetResult)
-            return
-        }
+        // `$: findTorrentIdentifiers(inputText)`: a magnet link, an info hash or a .torrent address names the torrent
+        if ParseTorrent.isIdentifier(filterText), playIdentifier(filterText) { return }
         applyFilter()
     }
 
@@ -1138,6 +1134,49 @@ final class ExtensionSearchViewController: UIViewController {
     }
 
     // MARK: - Download
+
+    // MARK: - server.playIdentifier
+
+    /// `findTorrentIdentifiers`: plays the torrent a magnet link, an info hash or the address of a .torrent
+    /// file names. False when the text does not name one.
+    @discardableResult
+    private func playIdentifier(_ identifier: String) -> Bool {
+        guard animeItem != nil, !isOpeningPlayer else { return false }
+        let lowered = identifier.lowercased()
+        if lowered.hasPrefix("magnet:") {
+            guard let hash = ParseTorrent.infoHash(magnet: identifier) else { return false }
+            confirmDownload(TorrentResult(title: hash, link: identifier, hash: hash))
+            return true
+        }
+        if let hash = ParseTorrent.infoHash(hash: identifier) {
+            confirmDownload(TorrentResult(title: hash, link: "magnet:?xt=urn:btih:" + hash, hash: hash))
+            return true
+        }
+        guard lowered.hasSuffix(".torrent"), let url = URL(string: identifier) else { return false }
+        // parse-torrent reads the file for its hash
+        if url.isFileURL {
+            guard let data = try? Data(contentsOf: url) else { return false }
+            playTorrentFile(data, name: url.lastPathComponent)
+            return true
+        }
+        guard url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https" else { return false }
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, _ in
+            guard let data, !data.isEmpty,
+                  (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true else { return }
+            DispatchQueue.main.async { self?.playTorrentFile(data, name: url.lastPathComponent) }
+        }.resume()
+        return true
+    }
+
+    /// `server.playIdentifier(new Uint8Array(await file.arrayBuffer()), media, episode)`
+    private func playTorrentFile(_ data: Data, name: String?) {
+        guard animeItem != nil, !isOpeningPlayer, let hash = ParseTorrent.infoHash(file: data) else { return }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("HayaseTorrents", isDirectory: true)
+        guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil else { return }
+        let file = folder.appendingPathComponent(hash + ".torrent")
+        guard (try? data.write(to: file)) != nil else { return }
+        confirmDownload(TorrentResult(title: name ?? hash, link: file.absoluteString, hash: hash))
+    }
 
     private func confirmDownload(_ result: TorrentResult) {
         guard !isOpeningPlayer else { return }
@@ -2190,5 +2229,39 @@ final class BottomDialogPresentationController: UIPresentationController {
 
     @objc private func dimmingTapped() {
         presentedViewController.dismiss(animated: true)
+    }
+}
+
+// MARK: - Torrents dropped on the dialog (SearchModal.svelte handleTransfer)
+
+extension ExtensionSearchViewController: UIDropInteractionDelegate {
+    func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+        animeItem != nil && session.hasItemsConforming(toTypeIdentifiers: [UTType.data.identifier, UTType.plainText.identifier, UTType.url.identifier])
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
+        UIDropProposal(operation: .copy)
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
+        for item in session.items {
+            let provider = item.itemProvider
+            if provider.suggestedName?.lowercased().hasSuffix(".torrent") == true
+                || provider.hasItemConformingToTypeIdentifier("org.bittorrent.torrent") {
+                // `file.type === 'application/x-bittorrent' || file.name.endsWith('.torrent')`
+                provider.loadDataRepresentation(forTypeIdentifier: UTType.data.identifier) { [weak self] data, _ in
+                    guard let data else { return }
+                    DispatchQueue.main.async { self?.playTorrentFile(data, name: provider.suggestedName) }
+                }
+            } else if provider.canLoadObject(ofClass: NSString.self) {
+                // `file.type === 'text/plain'` → findTorrentIdentifiers
+                _ = provider.loadObject(ofClass: NSString.self) { [weak self] text, _ in
+                    guard let text = text as? String else { return }
+                    DispatchQueue.main.async {
+                        if ParseTorrent.isIdentifier(text) { self?.playIdentifier(text) }
+                    }
+                }
+            }
+        }
     }
 }

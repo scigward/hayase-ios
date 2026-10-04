@@ -556,6 +556,16 @@ final class WebTorrentBackend {
         }
 
         if let link {
+            // a .torrent file of this device, as a dropped one is kept
+            if link.lowercased().hasPrefix("file:"), let url = URL(string: link),
+               let data = try? Data(contentsOf: url), !data.isEmpty {
+                completion(.success(Source(payload: [
+                    "kind": "torrentFileBase64",
+                    "data": data.base64EncodedString(),
+                    "source": link,
+                ], kind: "torrent-file", preview: Self.preview(link))))
+                return
+            }
             if Self.isHTTPURL(link) {
                 fetchTorrentFile(from: link) { result in
                     switch result {

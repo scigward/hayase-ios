@@ -18,6 +18,8 @@ public class VideoService: NSObject {
     var media: AnimeItem?
     /// The WebTorrent load this service started, which it drops with it.
     private var webTorrentPlay: WebTorrentPlayRequest?
+    /// resolver.ts `otherFiles`: what the torrent holds that is not a video (subtitle files, fonts).
+    private(set) var otherFiles: [WebTorrentFile] = []
 
     /// Set once the video rows of the torrent are in CoreData, so the spinner of a list is not
     /// stopped by a notification that arrives before there is anything to show.
@@ -110,6 +112,7 @@ public class VideoService: NSObject {
     private func InsertVideosFromWebTorrentFiles(_ files: [WebTorrentFile]) {
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let videoFiles = files.filter { TorrentBatchResolver.isVideoFile($0.name) }
+        otherFiles = files.filter { !TorrentBatchResolver.isVideoFile($0.name) }
 
         if let hash = files.first?.hash, !hash.isEmpty {
             torrentEntity.torrentHashString = hash

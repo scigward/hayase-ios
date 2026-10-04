@@ -34,7 +34,6 @@ final class MPVWrapper {
     private var currentPreset: PlayerPreset?
     private var currentURL: URL?
     private var currentHeaders: [String: String]?
-    private var pendingExternalSubtitles: [String] = []
     private var initialSubtitleId: Int?
     private var initialAudioId: Int?
     
@@ -301,14 +300,12 @@ final class MPVWrapper {
         with preset: PlayerPreset,
         headers: [String: String]? = nil,
         startPosition: Double? = nil,
-        externalSubtitles: [String]? = nil,
         initialSubtitleId: Int? = nil,
         initialAudioId: Int? = nil
     ) {
         currentPreset = preset
         currentURL = url
         currentHeaders = headers
-        pendingExternalSubtitles = externalSubtitles ?? []
         self.initialSubtitleId = initialSubtitleId
         self.initialAudioId = initialAudioId
         queue.async { [weak self] in
@@ -335,12 +332,8 @@ final class MPVWrapper {
             if let audioId = self.initialAudioId, audioId > 0 {
                 self.setAudioTrack(audioId)
             }
-            if self.pendingExternalSubtitles.isEmpty {
-                if let subId = self.initialSubtitleId {
-                    self.setSubtitleTrack(subId)
-                } else {
-                    self.disableSubtitles()
-                }
+            if let subId = self.initialSubtitleId {
+                self.setSubtitleTrack(subId)
             } else {
                 self.disableSubtitles()
             }
@@ -466,19 +459,6 @@ final class MPVWrapper {
         switch event.event_id {
         case MPV_EVENT_FILE_LOADED:
             setDeband(Settings.deband)
-            let hadExternalSubs = !pendingExternalSubtitles.isEmpty
-            if hadExternalSubs, let handle = mpv {
-                for (index, subUrl) in pendingExternalSubtitles.enumerated() {
-                    if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("🔧 Adding external subtitle [\(index)]: \(subUrl)") }
-                    commandSync(handle, ["sub-add", subUrl, "auto"])
-                }
-                pendingExternalSubtitles = []
-                if let subId = initialSubtitleId {
-                    setSubtitleTrack(subId)
-                } else {
-                    disableSubtitles()
-                }
-            }
             if !isReadyToSeek {
                 isReadyToSeek = true
                 DispatchQueue.main.async { [weak self] in
@@ -787,6 +767,33 @@ final class MPVWrapper {
         }
     }
     
+    /// `sub-add <file> <flags> <title> <lang>`: a file as a track, selected or not.
+    func addExternalSubtitle(path: String, select: Bool, title: String?, language: String?) {
+        withHandle(()) { handle in
+            var arguments = ["sub-add", path, select ? "select" : "cached"]
+            if let language, !language.isEmpty {
+                arguments.append((title?.isEmpty == false ? title : nil) ?? language)
+                arguments.append(language)
+            } else if let title, !title.isEmpty {
+                arguments.append(title)
+            }
+            _ = commandSync(handle, arguments)
+        }
+    }
+
+    /// Whether a subtitle track is on: the interface's `current` is not -1.
+    func hasSelectedSubtitleTrack() -> Bool {
+        getSubtitleTracks().contains { ($0["selected"] as? Bool) == true }
+    }
+
+    /// A folder with the fonts the subtitles of the torrent use, for libass.
+    func setSubtitleFontsDirectory(_ path: String) {
+        setProperty(name: "sub-fonts-dir", value: path)
+        withHandle(()) { handle in
+            commandSync(handle, ["sub-reload"])
+        }
+    }
+
     func addSubtitleFile(url: String, select: Bool = true) {
         let flag = select ? "select" : "cached"
         withHandle(()) { handle in

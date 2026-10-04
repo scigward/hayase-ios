@@ -630,6 +630,8 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     /// delay ensures the seek works for both local files and HTTP streams (where
     /// MPV can take several seconds to buffer enough data to start playback).
     private var pendingRestoreTime: Double?
+    /// subtitles.ts: the subtitle files of the torrent and of the subtitle extensions, and the fonts
+    private var subtitles: Subtitles?
     /// Throttle watch-progress saves to avoid writing UserDefaults on every
     /// position callback. Saves every 5 seconds during active playback.
     private var lastProgressSaveTime: Date = .distantPast
@@ -869,6 +871,9 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         castElapsedTimer?.invalidate()
         ExternalDisplayManager.shared.unregister(self)
         surface.stop()
+        subtitles?.destroy()
+        subtitles = nil
+        MediaSession.shared.clear(owner: self)
         videoService?.releaseWebTorrentSession()
         // W2G cleanup
         if let obs = w2gObserver { NotificationCenter.default.removeObserver(obs) }
@@ -1826,6 +1831,12 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         }
 
         surface.mpv.load(url: url, with: preset)
+        subtitles?.destroy()
+        let loader = Subtitles(mpv: surface.mpv, videoName: entity.videoName ?? url.lastPathComponent)
+        loader.start(otherFiles: videoService?.otherFiles ?? [],
+                     item: videoService?.media ?? Router.shared.cachedAnimeItem(for: currentMediaID),
+                     episode: episodeNumber)
+        subtitles = loader
         thumbnailer.updateSource(url)
         seekingImage.isHidden = true
         seekPreview.isHidden = true
@@ -1845,6 +1856,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         mobileNextButton.isEnabled = canGoNext
         nowCastingPrevButton.isEnabled = canGoPrev
         nowCastingNextButton.isEnabled = canGoNext
+        updateMediaSession(canGoPrev: canGoPrev, canGoNext: canGoNext)
         restoreProgress(path: path)
         startStatsTimer()
 
@@ -2148,6 +2160,53 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     /// reuse this VC's view once minimized (reparented into another window).
     func animeTitleForDisplay() -> String { animeTitleText() }
     func episodeDescriptionForDisplay() -> String { episodeDescriptionText() }
+
+    // MARK: - Media session (player.svelte: native.setMediaSession, setActionHandler)
+
+    /// What the lock screen, Control Centre and remote controls show and can do for this episode. The handlers
+    /// of previous and next track exist only when the episode has one (`prev?.()`).
+    private func updateMediaSession(canGoPrev: Bool, canGoNext: Bool) {
+        let anime = videoEntity?.torrents?.animes
+        let total = max(totalEpisodes, anime?.animeTotalEps?.intValue ?? 0)
+        // mediahandler.svelte: `Episode ${file.metadata.episode} / ${episodes(file.metadata.media) || '?'}`
+        let description = "Episode \(episodeNumber) / \(total > 0 ? String(total) : "?")"
+        MediaSession.shared.setMediaSession(owner: self, title: animeTitleText(), description: description,
+                                            imageURL: anime?.animeImgL, duration: duration)
+        MediaSession.shared.setActionHandlers(owner: self, MediaSession.Handlers(
+            play: { [weak self] in
+                guard let self, self.isPaused else { return }
+                self.surface.mpv.togglePause()
+            },
+            pause: { [weak self] in
+                guard let self, !self.isPaused else { return }
+                self.surface.mpv.togglePause()
+            },
+            seekTo: { [weak self] time in
+                self?.lastSeekTime = Date()
+                self?.surface.mpv.seek(to: time)
+            },
+            seekBackward: { [weak self] in
+                guard let self else { return }
+                self.lastSeekTime = Date()
+                self.surface.mpv.seek(by: -self.seekDurationSeconds)
+            },
+            seekForward: { [weak self] in
+                guard let self else { return }
+                self.lastSeekTime = Date()
+                self.surface.mpv.seek(by: self.seekDurationSeconds)
+            },
+            previousTrack: canGoPrev ? { [weak self] in self?.prevTapped() } : nil,
+            nextTrack: canGoNext ? { [weak self] in self?.nextTapped() } : nil))
+    }
+
+    /// `native.setPlayBackState` and `native.setPositionState`: 'none' until the media is there.
+    private func reportMediaSessionState(position: Double) {
+        let state: MediaSession.PlaybackState = duration > 0 ? (isPaused ? .paused : .playing) : .none
+        MediaSession.shared.setPlayBackState(owner: self, state: state)
+        guard duration > 0 else { return }
+        MediaSession.shared.setPositionState(owner: self, duration: duration, position: position,
+                                             playbackRate: playbackRate, state: state)
+    }
 
     /// Returns the anime title for the title label.
     /// Hayase: `mediaInfo.session.title = title(media)` — the anime name.
@@ -3147,6 +3206,7 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         if duration > 0, position > 0 {
             updateBuffering(false)
         }
+        reportMediaSessionState(position: position)
 
         // W2G: sync playback position to peers (mirrors player.svelte reactive binding).
         // Guard against feedback loop when applying remote state.
@@ -3218,6 +3278,7 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
             return  // The resulting pause callback handles all UI updates.
         }
         self.isPaused = isPaused
+        reportMediaSessionState(position: currentTime)
 
         // W2G: sync pause state to peers (mirrors player.svelte reactive binding).
         // Guard against feedback loop when applying remote state.
@@ -3270,7 +3331,8 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
     }
 
     func renderer(_ renderer: MPVWrapper, didBecomeReadyToSeek: Bool) {
-        // Video is completely loaded into memory
+        // subtitle files that came in while the video loaded can be added now
+        subtitles?.fileDidLoad()
     }
 
     func renderer(_ renderer: MPVWrapper, didBecomeTracksReady: Bool) {
