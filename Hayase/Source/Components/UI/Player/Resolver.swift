@@ -1,5 +1,5 @@
 //
-//  TorrentBatchResolver.swift
+//  Resolver.swift
 //  Hayase
 //
 //  Resolves which file in a multi-file torrent corresponds to a target

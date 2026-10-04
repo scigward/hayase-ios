@@ -12,7 +12,9 @@
 //  with the title and the language the interface gives it.
 //
 
+import UIKit
 import Foundation
+import AVKit
 
 final class Subtitles {
     /// `subtitleExtensions` of lib/utils.ts
@@ -346,4 +348,119 @@ extension Subtitles {
         "hin": "hi",  "ben": "bn",  "per": "fa",  "fas": "fa",
         "mal": "ml",
     ]
+}
+
+// MARK: - The player's side of subtitles.ts (the tracks inside the video and which of them is chosen)
+
+extension VideoPlayerViewController {
+    /// Returns a `file://` URL for the current MKV on disk (if available)
+    /// so `matroska-swift` can parse subtitle track languages directly from
+    /// the container header. Returns `nil` for non-file or unknown paths.
+    func mkvFileURLForLanguageParsing() -> URL? {
+        guard let path = videoEntity?.videoPath, !path.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: path)
+        let ext = url.pathExtension.lowercased()
+        guard ext == "mkv" || ext == "webm" else { return nil }
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        return url
+    }
+
+    func makeTrack(from dict: [String: Any], type: String) -> MPVTrack? {
+        guard let id = dict["id"] as? Int else { return nil }
+        return MPVTrack(id: id,
+                        type: type,
+                        title: dict["title"] as? String,
+                        lang: dict["lang"] as? String,
+                        isSelected: dict["selected"] as? Bool ?? false,
+                        isForced: dict["forced"] as? Bool ?? false,
+                        isDefault: dict["default"] as? Bool ?? false)
+    }
+
+    func readTracks(from renderer: MPVWrapper, includeMkvLanguages: Bool = false) -> [MPVTrack] {
+        let mkvURL = includeMkvLanguages ? mkvFileURLForLanguageParsing() : nil
+        var result: [MPVTrack] = []
+
+        for dict in renderer.getSubtitleTracks(mkvFileURL: mkvURL) {
+            if let track = makeTrack(from: dict, type: "sub") {
+                result.append(track)
+            }
+        }
+        for dict in renderer.getAudioTracks() {
+            if let track = makeTrack(from: dict, type: "audio") {
+                result.append(track)
+            }
+        }
+        for dict in renderer.getVideoTracks() {
+            if let track = makeTrack(from: dict, type: "video") {
+                result.append(track)
+            }
+        }
+
+        return result
+    }
+
+    func mergeCachedTrackMetadata(into freshTracks: [MPVTrack]) -> [MPVTrack] {
+        guard !tracks.isEmpty else { return freshTracks }
+        let cachedByKey = Dictionary(tracks.map { (trackKey($0), $0) }, uniquingKeysWith: { first, _ in first })
+
+        return freshTracks.map { fresh in
+            guard let cached = cachedByKey[trackKey(fresh)] else { return fresh }
+            return MPVTrack(id: fresh.id,
+                            type: fresh.type,
+                            title: fresh.title ?? cached.title,
+                            lang: fresh.lang ?? cached.lang,
+                            isSelected: fresh.isSelected,
+                            isForced: fresh.isForced,
+                            isDefault: fresh.isDefault)
+        }
+    }
+
+    func currentTracksForOptions() -> [MPVTrack] {
+        let freshTracks = readTracks(from: surface.mpv)
+        guard !freshTracks.isEmpty else { return tracks }
+        return mergeCachedTrackMetadata(into: freshTracks)
+    }
+
+    func trackKey(_ track: MPVTrack) -> String {
+        "\(track.type):\(track.id)"
+    }
+
+    /// Selects the audio and subtitle tracks that the language settings, the forced and default flags and the
+    /// track of the last episode ask for (`checkAudio` of player.svelte and `Subtitles` of subtitles.ts).
+    func applyPreferredLanguages(renderer: MPVWrapper, tracks: [MPVTrack]) {
+        // `checkAudio` of player.svelte: of several audio tracks the one in the language of the settings, else the Japanese one
+        let audio = tracks.filter { $0.type == "audio" }.map { (id: $0.id, language: $0.lang) }
+        if let id = Subtitles.preferredAudioTrack(in: audio, audioLanguage: Settings.audioLanguage) {
+            renderer.setAudioTrack(id)
+        }
+
+        // the tracks of `Subtitles`: none when the subtitle language is none, else the one the settings and the
+        // last episode ask for
+        let subtitleTracks = tracks.filter { $0.type == "sub" }
+        let metas = subtitleTracks.map {
+            SubtitleTrackMeta(number: String($0.id), language: $0.lang, name: $0.title, forced: $0.isForced, isDefault: $0.isDefault)
+        }
+        if let number = Subtitles.preferredTrack(in: metas, audioLanguage: Settings.audioLanguage,
+                                                 subtitleLanguage: Settings.subtitleLanguage),
+           let id = Int(number), let track = subtitleTracks.first(where: { $0.id == id }) {
+            if track.isSelected {
+                Subtitles.lastSelectedTrack = metas.first { $0.number == number }
+            } else {
+                selectSubtitleTrack(id, in: subtitleTracks)
+            }
+        } else if Settings.subtitleLanguage.isEmpty, subtitleTracks.contains(where: { $0.isSelected }) {
+            // "None" selected in settings → disable subtitles
+            renderer.disableSubtitles()
+        }
+    }
+
+    /// `selectCaptions`: the track is selected, and it is the one that the next episode looks for
+    func selectSubtitleTrack(_ id: Int, in tracks: [MPVTrack]? = nil) {
+        surface.mpv.setSubtitleTrack(id)
+        guard id >= 0,
+              let track = (tracks ?? self.tracks).first(where: { $0.type == "sub" && $0.id == id }) else { return }
+        surface.mpv.setSubtitleDefaultFont(Subtitles.defaultFont(forLanguage: track.lang))
+        Subtitles.lastSelectedTrack = SubtitleTrackMeta(number: String(id), language: track.lang, name: track.title,
+                                                        forced: track.isForced, isDefault: track.isDefault)
+    }
 }

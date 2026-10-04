@@ -1,11 +1,13 @@
-// PiPController.swift — System Picture-in-Picture support.
+// Pip.swift — System Picture-in-Picture support.
 //
-// Adapted from streamyfin (modules/mpv-player/ios/PiPController.swift).
+// Adapted from streamyfin (modules/mpv-player/ios/Pip.swift).
 // Uses AVPictureInPictureController with AVSampleBufferDisplayLayer content
 // source to provide native system PiP when the app goes to background.
 
 import AVKit
 import AVFoundation
+import UIKit
+import CoreMedia
 
 @available(iOS 15.0, *)
 protocol PiPControllerDelegate: AnyObject {
@@ -250,5 +252,95 @@ extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
     
     func pictureInPictureControllerIsPlaybackPaused(_ pictureInPictureController: AVPictureInPictureController) -> Bool {
         return !(delegate?.pipControllerIsPlaying(self) ?? false)
+    }
+}
+
+// MARK: - The player's side of pip.ts
+
+extension VideoPlayerViewController {
+    @available(iOS 15.0, *)
+    var pipController: PiPController? {
+        get { _pipController as? PiPController }
+        set { _pipController = newValue }
+    }
+}
+
+// MARK: - PiPControllerDelegate (System PiP — streamyfin)
+
+@available(iOS 15.0, *)
+extension VideoPlayerViewController: PiPControllerDelegate {
+
+    func pipController(_ controller: PiPController, willStartPictureInPicture: Bool) {
+        // Hide in-app overlay while system PiP is active.
+        setControls(visible: false)
+    }
+
+    func pipController(_ controller: PiPController, didStartPictureInPicture started: Bool) {
+        guard !started else { return }
+        autoPiPRequested = false
+        if Settings.playerPause,
+           UIApplication.shared.applicationState == .background,
+           !isPaused {
+            visibilityPauseWasPlaying = true
+            surface.mpv.pausePlayback()
+        }
+    }
+
+    func pipController(_ controller: PiPController, willStopPictureInPicture: Bool) {
+        // System PiP is about to stop.
+    }
+
+    func pipController(_ controller: PiPController, didStopPictureInPicture: Bool) {
+        // System PiP stopped — show controls again.
+        setControls(visible: true)
+        scheduleHide()
+    }
+
+    func pipController(_ controller: PiPController, restoreUserInterfaceForPictureInPictureStop completionHandler: @escaping (Bool) -> Void) {
+        // The user tapped the PiP window to return to the app.
+        // If the player is still presented, just report success.
+        // If it was dismissed (e.g. from in-app mini-player), re-present it.
+        if presentingViewController != nil || view.window != nil {
+            completionHandler(true)
+        } else {
+            // Player was dismissed — try to present it again from the top VC.
+            if let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene }).first,
+               let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                var top = root
+                while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+                guard top !== self else { completionHandler(false); return }
+                top.presentHayasePlayer(self) {
+                    completionHandler(true)
+                }
+            } else {
+                completionHandler(false)
+            }
+        }
+    }
+
+    func pipControllerPlay(_ controller: PiPController) {
+        surface.mpv.play()
+    }
+
+    func pipControllerPause(_ controller: PiPController) {
+        surface.mpv.pausePlayback()
+    }
+
+    func pipController(_ controller: PiPController, skipByInterval interval: CMTime) {
+        let seconds = CMTimeGetSeconds(interval)
+        surface.mpv.seek(by: seconds)
+    }
+
+    func pipControllerIsPlaying(_ controller: PiPController) -> Bool {
+        return !isPaused
+    }
+
+    func pipControllerDuration(_ controller: PiPController) -> Double {
+        return duration
+    }
+
+    func pipControllerCurrentPosition(_ controller: PiPController) -> Double {
+        return currentTime
     }
 }

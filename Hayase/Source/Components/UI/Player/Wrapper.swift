@@ -1127,3 +1127,56 @@ final class MiniPlayerManager {
         window.rootViewController?.present(searchVC, animated: true)
     }
 }
+
+// MARK: - The player's side of wrapper.svelte (fullscreen, and the surface that the mini-player takes)
+
+extension VideoPlayerViewController {
+    func enterFullscreenForPlayerRouteIfNeeded() {
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              Router.shared.currentRoute == .player,
+              !isMinimizing else { return }
+        enterFullscreenPresentation()
+    }
+
+    func toggleFullscreenPresentation() {
+        if isFullscreenPresentation {
+            exitFullscreenPresentation()
+        } else {
+            enterFullscreenPresentation()
+        }
+    }
+
+    func enterFullscreenPresentation() {
+        guard !isFullscreenPresentation else { return }
+        isFullscreenPresentation = true
+        hayaseSidebarController?.setPlayerFullscreenActive(true)
+        setNeedsStatusBarAppearanceUpdate()
+        setNeedsUpdateOfHomeIndicatorAutoHidden()
+    }
+
+    func exitFullscreenPresentation() {
+        guard isFullscreenPresentation else { return }
+        isFullscreenPresentation = false
+        hayaseSidebarController?.setPlayerFullscreenActive(false)
+        setNeedsStatusBarAppearanceUpdate()
+        setNeedsUpdateOfHomeIndicatorAutoHidden()
+    }
+
+    var isFullscreenForRouteNavigation: Bool {
+        isFullscreenPresentation
+    }
+
+    func exitFullscreenForRouteNavigationIfNeeded() {
+        if isFullscreenPresentation {
+            exitFullscreenPresentation()
+        }
+    }
+
+    /// Returns the MPV surface view so MiniPlayerManager can reparent it.
+    var surfaceView: MPVSurfaceView { surface }
+
+    /// Toggles play/pause from the mini-player.
+    func togglePlayPause() {
+        playPauseTapped()
+    }
+}

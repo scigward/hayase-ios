@@ -9,6 +9,7 @@
 //  skipped by itself, which AnimeThemes says.
 //
 
+import UIKit
 import Foundation
 
 // MARK: - Chapter
@@ -272,5 +273,121 @@ final class Chapters {
               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let results = json["results"] as? [[String: Any]] else { return [] }
         return results
+    }
+}
+
+// MARK: - The player's side of chapters.ts (the markers, the title and the skip button)
+
+extension VideoPlayerViewController {
+    func updateChapterMarkers() {
+        seekBar.setChapters(chapters, duration: duration)
+    }
+
+    func chapterWindow(at time: Double) -> (title: String, start: Double, end: Double)? {
+        guard duration > 0, !chapters.isEmpty else { return nil }
+        let sorted = chapters.sorted { $0.time < $1.time }
+        for (index, chapter) in sorted.enumerated() {
+            let start = max(0, chapter.time)
+            let end = index + 1 < sorted.count ? sorted[index + 1].time : duration
+            if time >= start && time <= end {
+                return (chapter.title, start, min(duration, max(start, end)))
+            }
+        }
+        return nil
+    }
+
+    func chapterTitle(at time: Double) -> String {
+        (chapterWindow(at: time)?.title ?? "").capitalized
+    }
+
+    /// `loadChapters`: the chapters of the file (or, when it has none to read, AniSkip's) made whole, with
+    /// what is skippable marked. They replace the file's own once they are there.
+    func loadChapters() {
+        guard duration > 0, let handler = chaptersHandler else { return }
+        chaptersLoadedDuration = duration
+        let duration = self.duration
+        // the chapters of the file know where they start; one ends where the next starts
+        let sorted = fileChapters.sorted { $0.time < $1.time }
+        let raw = sorted.enumerated().map { index, chapter in
+            RawChapter(start: chapter.time * 1000,
+                       end: (index + 1 < sorted.count ? sorted[index + 1].time : duration) * 1000,
+                       text: chapter.title)
+        }
+        let malID = videoService?.media?.malId ?? Router.shared.cachedAnimeItem(for: currentMediaID)?.malId
+        let fileExtension = ((videoEntity?.videoName ?? "") as NSString).pathExtension.lowercased()
+        chaptersTask?.cancel()
+        chaptersTask = Task { @MainActor [weak self] in
+            let loaded = await handler.loadChapters(fileChapters: raw, malID: malID,
+                                                    readsChaptersOfContainer: ["mkv", "webm"].contains(fileExtension),
+                                                    duration: duration)
+            guard let self, !Task.isCancelled, self.chaptersHandler === handler, !loaded.isEmpty else { return }
+            self.chapterModel = loaded
+            self.chapters = loaded.enumerated().map { MPVChapter(index: $0.offset, title: $0.element.text, time: $0.element.start) }
+            self.updateChapterMarkers()
+            self.updateSkipChapterButton()
+        }
+    }
+
+    /// `checkSkippableChapters`
+    func updateSkipChapterButton() {
+        guard let current = Chapters.find(currentTime, in: chapterModel) else { return }
+        let next = current.skippable ? current : nil
+        guard next != currentSkippableChapter else { return }
+        let wasAutoskippable = currentSkippableChapter?.autoskippable ?? false
+        currentSkippableChapter = next
+        if let next {
+            skipChapterButton.setTitle("Skip \(next.skiptype ?? "")")
+            skipChapterButton.stopProgress()
+            let w2gAllowsSkip = W2GLobby.shared.client.map { $0.peers.count > 1 } ?? true
+            // an opening or ending that is not on its first episode skips by itself, after the button has run
+            if Settings.playerSkip, next.autoskippable, !wasAutoskippable, w2gAllowsSkip {
+                skipChapterButton.startProgress(duration: 3)
+            }
+        } else {
+            skipChapterButton.stopProgress()
+        }
+        updateInterfaceOverlayVisibility(animated: true)
+    }
+
+    /// `skip()`: past the chapter, 85 seconds on in a long one that is not skippable, or where 90 seconds /
+    /// the end of the episode is when there is no chapter.
+    func skipCurrentChapter() {
+        guard duration > 0 else { return }
+        let target: Double
+        if let current = Chapters.find(currentTime, in: chapterModel) {
+            if !current.skippable && current.length > 100 {
+                target = currentTime + 85
+            } else {
+                target = current.end + 0.5
+                currentSkippableChapter = nil
+            }
+        } else if currentTime < 10 {
+            target = 90
+        } else if duration - currentTime < 90 {
+            target = duration
+        } else {
+            target = currentTime + 85
+        }
+        let targetTime = min(duration, target)
+        surface.mpv.seek(to: targetTime)
+        lastSeekTime = Date()
+        isSeeking = true
+        pendingSeekDisplayTime = targetTime
+        currentSkippableChapter = nil
+        skipChapterButton.stopProgress()
+        renderSeekTargetUI(time: targetTime)
+        updateInterfaceOverlayVisibility(animated: true)
+        scheduleHide()
+
+        doubleTapSeekRestoreWork?.cancel()
+        let restoreWork = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.doubleTapSeekRestoreWork = nil
+            self.isSeeking = false
+            self.pendingSeekDisplayTime = nil
+            self.updateTimeUI()
+        }
+        doubleTapSeekRestoreWork = restoreWork
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: restoreWork)
     }
 }

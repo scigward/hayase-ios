@@ -114,3 +114,52 @@ final class PlayerTechnicalStatsView: UIView {
         return view
     }
 }
+
+// MARK: - The player's side of statsfornerds.svelte
+
+extension VideoPlayerViewController {
+    func toggleTechnicalStats() {
+        if let panel = technicalStatsView {
+            panel.removeFromSuperview()
+            technicalStatsView = nil
+            technicalStatsTimer?.invalidate()
+            technicalStatsTimer = nil
+            return
+        }
+        let panel = PlayerTechnicalStatsView()
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        panel.onClose = { [weak self] in self?.toggleTechnicalStats() }
+        overlay.addSubview(panel)
+        NSLayoutConstraint.activate([
+            panel.topAnchor.constraint(equalTo: overlay.topAnchor, constant: 20),
+            panel.leadingAnchor.constraint(equalTo: overlay.leadingAnchor, constant: 20),
+            panel.widthAnchor.constraint(equalToConstant: 288),
+        ])
+        technicalStatsView = panel
+        updateTechnicalStats()
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in self?.updateTechnicalStats() }
+        RunLoop.main.add(timer, forMode: .common)
+        technicalStatsTimer = timer
+    }
+
+    func updateTechnicalStats() {
+        guard let panel = technicalStatsView else { return }
+        let info = surface.mpv.getTechnicalInfo()
+        let width = (info["videoWidth"] as? Int) ?? 0
+        let height = (info["videoHeight"] as? Int) ?? 0
+        panel.update([
+            "Resolution": "\(width)x\(height)", "Viewport": "\(Int(surface.bounds.width))x\(Int(surface.bounds.height))",
+            "FPS": (info["fps"] as? Double).map { String(format: "%.1f", $0) } ?? "-",
+            "Dropped Frames": String((info["droppedFrames"] as? Int) ?? 0),
+            "Position": "\(fmtTime(currentTime)) / \(fmtTime(duration))",
+            "Speed": String(format: "x%.2f", playbackRate), "Volume": String(format: "%.0f%%", surface.mpv.getVolume()),
+            "Subtitle Delay": String(format: "%.1fs", subtitleDelay),
+            // Native state is named honestly; DOM HAVE_* and frame callback counters
+            // do not exist in MPV. Unavailable counters retain the interface's '-'.
+            "Ready State": isBuffering ? "Buffering" : isPaused ? "Paused" : "Playing",
+            "Audio": String(tracks.filter { $0.type == "audio" }.count),
+            "Video": String(tracks.filter { $0.type == "video" }.count),
+            "Health": "\(Int(safe: (info["cacheSeconds"] as? Double) ?? 0)) s",
+        ])
+    }
+}

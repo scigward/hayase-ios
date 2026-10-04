@@ -1,5 +1,5 @@
 //
-//  PlayerEpisodeListViewController.swift
+//  Episodesmodal.swift
 //  Hayase
 //
 //  Created by scigward.
@@ -693,5 +693,152 @@ final class RightSideSheetAnimator: NSObject, UIViewControllerAnimatedTransition
                 transitionContext.completeTransition(finished)
             })
         }
+    }
+}
+
+// MARK: - The player's side of episodesmodal.svelte (the title, the episode and what they open)
+
+extension VideoPlayerViewController {
+    /// MiniPlayerManager's own copy of the Now Casting overlay reads these —
+    /// it can't call the private version below (different file), and can't
+    /// reuse this VC's view once minimized (reparented into another window).
+    func animeTitleForDisplay() -> String { animeTitleText() }
+
+    func episodeDescriptionForDisplay() -> String { episodeDescriptionText() }
+
+    /// Returns the anime title for the title label.
+    /// Hayase: `mediaInfo.session.title = title(media)` — the anime name.
+    /// Falls back to the video file name if no anime metadata is linked.
+    func animeTitleText() -> String {
+        if let anime = videoEntity?.torrents?.animes {
+            return AniListUtil.title(for: anime)
+        }
+        return videoEntity?.videoName ?? "Playing"
+    }
+
+    /// Returns the episode description for the episode label.
+    /// Format: "Episode N/Total" when total is known, "Episode N" otherwise.
+    func episodeDescriptionText() -> String {
+        let totalEps = videoEntity?.torrents?.animes?.animeTotalEps?.intValue ?? 0
+        if totalEps > 0 {
+            return "Episode \(episodeNumber)/\(totalEps)"
+        }
+        return "Episode \(episodeNumber)"
+    }
+
+    /// interface episodesmodal.svelte:
+    /// ```
+    /// <button class='text-lg ... hover:text-muted-foreground hover:underline'
+    ///         onclick={() => goto(`/#/app/anime/${mediaInfo.media.id}`)}>
+    ///   {mediaInfo.session.title}
+    /// </button>
+    /// ```
+    @objc func titleTapped() {
+        // Same episodesmodal.svelte component, same hover:underline touch
+        // equivalent — the Now Casting screen's own title button needs the
+        // same flash, not the (now-hidden) main player's titleLabel.
+        if activeCastDisplay != nil {
+            flashInteractiveButton(nowCastingAnimeTitleButton)
+        } else {
+            flashInteractiveLabel(titleLabel)
+        }
+        openAnimeDetailFromTitle()
+    }
+
+    /// interface episodesmodal.svelte: the description doubles as the `Sheet.Trigger`
+    /// that reveals the full episode list.
+    @objc func episodeLabelTapped() {
+        if activeCastDisplay != nil {
+            flashInteractiveButton(nowCastingEpisodeButton)
+        } else {
+            flashInteractiveLabel(episodeLabel)
+        }
+        presentEpisodeListSheet()
+    }
+
+    /// Touch equivalent of Tailwind's `hover:text-muted-foreground hover:underline` —
+    /// a brief muted + underlined flash so the tap is acknowledged.
+    func flashInteractiveLabel(_ label: TextShadowLabel) {
+        guard let text = label.content, !text.isEmpty, !label.underlinesText else { return }
+        let color = label.textColor ?? .white
+        let highlight = UIColor.HayaseTheme.mutedForeground
+        // Preserve the label's CSS leading/baseline during and after feedback.
+        label.textColor = highlight
+        label.underlinesText = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak label] in
+            guard let label else { return }
+            label.underlinesText = false
+            label.textColor = color
+        }
+    }
+
+    /// Same flash, for the Now Casting screen's title/episode `UIButton`s —
+    /// mutating `titleLabel` directly on a button fights its own state-based
+    /// title management, so this goes through setAttributedTitle instead.
+    /// Not private: MiniPlayerManager's own cast overlay buttons reuse this
+    /// rather than duplicating the same logic in a second file.
+    func flashInteractiveButton(_ button: UIButton) {
+        guard let text = button.title(for: .normal), !text.isEmpty else { return }
+        let font = button.titleLabel?.font ?? .nunito(ofSize: 14)
+        let color = button.titleColor(for: .normal) ?? .white
+        let highlight = UIColor.HayaseTheme.mutedForeground
+        button.setAttributedTitle(NSAttributedString(string: text, attributes: [
+            .font: font,
+            .foregroundColor: highlight,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+            .underlineColor: highlight,
+        ]), for: .normal)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak button] in
+            guard let button else { return }
+            button.setAttributedTitle(nil, for: .normal)
+            button.setTitle(text, for: .normal)
+            button.setTitleColor(color, for: .normal)
+            button.titleLabel?.font = font
+        }
+    }
+
+    /// Mirrors episodesmodal.svelte's plain `goto()` to `/app/anime/[id]`; the app shell owns player exit/minimization.
+    func openAnimeDetailFromTitle() {
+        let mediaID = currentMediaID
+        guard mediaID > 0 else { return }
+
+        if let media = currentResolvedVideo?.media {
+            Router.shared.cacheAnimeItem(media)
+        }
+        Router.shared.navigate(.anime(id: mediaID))
+    }
+
+    /// interface episodesmodal.svelte: `<Sheet.Content class='w-full sm:w-[550px] ...'>`
+    /// hosting `<EpisodesList {eps} media={media.data.Media} />`.
+    /// `presenter` defaults to self; MiniPlayerManager's cast overlay passes
+    /// the actual top view controller instead, since a minimized player's
+    /// own view isn't part of the visible hierarchy and can't present.
+    func presentEpisodeListSheet(from presenter: UIViewController? = nil) {
+        let mediaID = currentMediaID
+        guard mediaID > 0 else { return }
+
+        let playingEpisode = currentEpisodeForNavigation ?? episodeNumber
+
+        let sheet = PlayerEpisodeListViewController()
+        sheet.anilistID = mediaID
+        sheet.currentEpisode = playingEpisode
+        sheet.media = currentResolvedVideo?.media
+        sheet.totalEpisodesHint = currentEpisodeLimit
+        // interface EpisodesList.svelte card click: `playEp(media, episode)`.
+        sheet.onSelectEpisode = { [weak self] episode, media in
+            guard let self else { return }
+            let current = self.currentEpisodeForNavigation ?? self.episodeNumber
+            guard episode != current else { return }
+            self.playEpisode(episode, media: media)
+        }
+        sheet.onDismiss = { [weak self] in
+            self?.scheduleHide()
+        }
+
+        let host = presenter ?? self
+        // Keep the controls up for as long as the sheet is open.
+        hideWork?.cancel()
+        sheet.prepareSheetPresentation(from: host)
+        host.present(sheet, animated: true)
     }
 }
