@@ -4,11 +4,10 @@
 //
 //  Mirrors: src/lib/modules/gamepad.ts: a game controller is a keyboard for the app. The A button is Enter,
 //  B and Menu are Escape, and the D-pad and the left stick are the arrow keys, which repeat while they are
-//  held (400ms to the first, then every 100ms). Each press goes to the element that has the focus, and from
-//  it up through what contains it, as a key of the keyboard does: the first responder up the chain that has
-//  a key command for the key runs it. What no one takes is `navigate` (an arrow moves the focus) or the
-//  click of Enter on the focused element, which are the defaults of the browser that gamepad.ts has to do by
-//  hand for an event it made itself.
+//  held (400ms to the first, then every 100ms). Each press is a `KeyboardEvent` that goes to the element that
+//  has the focus and up through what contains it, as in the page, and then to `navigate` (an arrow moves the
+//  focus) and the click of Enter on the focused element, which are what the browser leaves to gamepad.ts for
+//  an event it did not make itself.
 //
 //  The interface reads a pad by its `standard` mapping, which is what GameController calls the extended
 //  gamepad: a controller that has only a micro gamepad (a remote) is not used. It looks at the pad on every
@@ -218,39 +217,10 @@ final class Gamepad: NSObject {
     private func dispatch(_ event: GamepadPresses.Event, for button: Int) {
         guard let key = GamepadPresses.key(for: button) else { return }
         Navigate.inputType = .dpad
-        // Nothing in the app is moved by a key coming up, as a key command runs when it goes down.
+        // Nothing in the app listens for a key coming up (a key command runs when it goes down).
         guard case .keydown(let isRepeat) = event else { return }
-        keyDown(key, isRepeat: isRepeat)
-    }
-
-    /// `target.dispatchEvent(new KeyboardEvent('keydown', ...))`, on the focused element or else the body
-    private func keyDown(_ key: GamepadKey, isRepeat: Bool) {
-        guard let container = Navigate.container else { return }
-        let target = Navigate.liveActiveElement(in: container) ?? container
-
-        if Self.sendKeyCommand(key, from: target) { return }
-
-        // what no one took: the window's `navigate` for an arrow, and for Enter the click that the browser
-        // does not do for a key it did not make
-        if let direction = key.direction {
-            Navigate.navigate(direction, isRepeat: isRepeat)
-        } else if key == .enter, target !== container {
-            Navigate.click(target)
-        }
-    }
-
-    /// The key goes up from the target through its responders, and the first with a key command for it runs it.
-    private static func sendKeyCommand(_ key: GamepadKey, from target: UIResponder) -> Bool {
-        var responder: UIResponder? = target
-        while let current = responder {
-            if let command = current.keyCommands?.first(where: { $0.input == key.input && $0.modifierFlags.isEmpty }),
-               let action = command.action,
-               UIApplication.shared.sendAction(action, to: current, from: command, for: nil) {
-                return true
-            }
-            responder = current.next
-        }
-        return false
+        // `target.dispatchEvent(new KeyboardEvent('keydown', ...))`: on the focused element, or else the body
+        KeyboardEvent(key: key.input, isRepeat: isRepeat).dispatch()
     }
 }
 
@@ -258,22 +228,12 @@ private extension GamepadKey {
     /// `key` of the event, as a key command names it
     var input: String {
         switch self {
-        case .enter: return "\r"
-        case .escape: return UIKeyCommand.inputEscape
-        case .arrowUp: return UIKeyCommand.inputUpArrow
-        case .arrowDown: return UIKeyCommand.inputDownArrow
-        case .arrowLeft: return UIKeyCommand.inputLeftArrow
-        case .arrowRight: return UIKeyCommand.inputRightArrow
-        }
-    }
-
-    var direction: Navigate.Direction? {
-        switch self {
-        case .arrowUp: return .up
-        case .arrowDown: return .down
-        case .arrowLeft: return .left
-        case .arrowRight: return .right
-        case .enter, .escape: return nil
+        case .enter: return KeyboardEvent.Key.enter
+        case .escape: return KeyboardEvent.Key.escape
+        case .arrowUp: return KeyboardEvent.Key.arrowUp
+        case .arrowDown: return KeyboardEvent.Key.arrowDown
+        case .arrowLeft: return KeyboardEvent.Key.arrowLeft
+        case .arrowRight: return KeyboardEvent.Key.arrowRight
         }
     }
 }

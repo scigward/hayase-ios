@@ -73,18 +73,29 @@ enum PlayerKeyBindings {
                 "Home": UIKeyCommand.inputHome, "PageUp": UIKeyCommand.inputPageUp,
                 "PageDown": UIKeyCommand.inputPageDown][code]
     }
-    static func commands(action: Selector) -> [UIKeyCommand] {
+    static func commands() -> [UIKeyCommand] {
         mapping.keys.compactMap { input(for: $0) }.flatMap { input in
-            [UIKeyModifierFlags(), .shift].map { modifiers in
-                let command = UIKeyCommand(input: input, modifierFlags: modifiers, action: action)
-                command.wantsPriorityOverSystemBehavior = true
-                return command
-            }
+            [UIKeyModifierFlags(), .shift].map { UIKeyCommand.keydown(input, modifierFlags: $0, priority: true) }
         }
     }
-    static func binding(for command: UIKeyCommand) -> Binding? {
-        guard let code = mapping.keys.first(where: { input(for: $0) == command.input }) else { return nil }
+    static func binding(for event: KeyboardEvent) -> Binding? {
+        guard let code = mapping.keys.first(where: { input(for: $0) == event.key }) else { return nil }
         return binding(for: code)
+    }
+
+    private static let arrows = [KeyboardEvent.Key.arrowLeft, KeyboardEvent.Key.arrowRight,
+                                 KeyboardEvent.Key.arrowUp, KeyboardEvent.Key.arrowDown]
+
+    /// `runBind` of keybinds.svelte, which is a listener of the document: the key that has a bind is prevented, and the
+    /// bind is run with its id and whether Shift is down. The four arrow binds return at once while the arrows move
+    /// the focus (`if ($inputType === 'dpad') return`), and the key goes on to `navigate`; the others are for the
+    /// player alone, so the key goes no further, where the options over it have the same keys.
+    static func run(_ event: KeyboardEvent, action: (_ id: String, _ shift: Bool) -> Void) {
+        guard let binding = binding(for: event) else { return }
+        event.preventDefault()
+        if arrows.contains(event.key), Navigate.inputType == .dpad { return }
+        event.stopPropagation()
+        action(binding.id, event.modifierFlags.contains(.shift))
     }
     static func isEditing(in view: UIView?) -> Bool {
         guard let view else { return false }

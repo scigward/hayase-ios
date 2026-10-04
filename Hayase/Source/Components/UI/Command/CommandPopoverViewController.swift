@@ -7,7 +7,7 @@
 
 import UIKit
 
-class CommandPopoverViewController: UIViewController {
+class CommandPopoverViewController: UIViewController, KeyboardEventListener {
     var onSelectionChanged: ((Set<String>) -> Void)?
     /// cmdk's own filter: an item is shown when its `value` (not its label) scores above 0 against
     /// the search, and the groups with the best matches come first.
@@ -151,21 +151,28 @@ class CommandPopoverViewController: UIViewController {
     override var canBecomeFirstResponder: Bool { true }
 
     override var keyCommands: [UIKeyCommand]? {
-        func key(_ input: String, _ action: Selector) -> UIKeyCommand {
-            let command = UIKeyCommand(input: input, modifierFlags: [], action: action)
-            command.wantsPriorityOverSystemBehavior = true
-            return command
-        }
-        return [
-            key(UIKeyCommand.inputUpArrow, #selector(moveFocusUp)),
-            key(UIKeyCommand.inputDownArrow, #selector(moveFocusDown)),
-            key("\r", #selector(activateFocus)),
-            key(UIKeyCommand.inputEscape, #selector(dismissSelf)),
-        ]
+        [.keydown(KeyboardEvent.Key.arrowUp, priority: true), .keydown(KeyboardEvent.Key.arrowDown, priority: true),
+         .keydown(KeyboardEvent.Key.enter, priority: true), .keydown(KeyboardEvent.Key.escape, priority: true)]
     }
 
-    @objc private func moveFocusUp() { moveKeyboardFocus(by: -1) }
-    @objc private func moveFocusDown() { moveKeyboardFocus(by: 1) }
+    /// The arrows are `navigate`, which the list is given as `onKeydown` and which cmdk leaves the key to once it
+    /// has run; Enter is the item's, and Escape is the dialog's, which is only the closest one that has it.
+    func keyDown(_ event: KeyboardEvent) {
+        switch event.key {
+        case KeyboardEvent.Key.arrowUp, KeyboardEvent.Key.arrowDown:
+            if Navigate.accepts(event) != nil {
+                moveKeyboardFocus(by: event.key == KeyboardEvent.Key.arrowDown ? 1 : -1)
+            }
+        case KeyboardEvent.Key.enter:
+            activateFocus()
+        case KeyboardEvent.Key.escape:
+            dismissSelf()
+        default:
+            return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+    }
 
     /// The elements the arrow keys go through, top to bottom.
     private func keyboardOrder() -> [KeyboardFocus] {
@@ -180,7 +187,6 @@ class CommandPopoverViewController: UIViewController {
     }
 
     private func moveKeyboardFocus(by delta: Int) {
-        Navigate.inputType = .dpad   // `navigate` of navigate.ts, which the list is given as `onKeydown`
         let order = keyboardOrder()
         guard !order.isEmpty else { return }
         // a select nothing is chosen in has no focus yet: the arrow goes to its first or last item
@@ -219,7 +225,7 @@ class CommandPopoverViewController: UIViewController {
     }
 
     /// Enter on the focused item clicks it; in the input it takes the item cmdk has selected, the first.
-    @objc private func activateFocus() {
+    private func activateFocus() {
         switch keyboardFocus {
         case .close:
             closeAndRestoreFocus()

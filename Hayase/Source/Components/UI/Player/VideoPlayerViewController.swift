@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 /// A chapter-segmented progress bar matching the Hayase web interface seekbar.svelte.
 /// Each chapter forms a separate rounded bar segment with small gaps between them.
 /// Replaces UISlider + chapterLayer for a faithful recreation of the web player.
-private final class SegmentedSeekBar: UIControl {
+private final class SegmentedSeekBar: UIControl, KeyboardEventListener {
 
     // MARK: - Public State
 
@@ -32,15 +32,19 @@ private final class SegmentedSeekBar: UIControl {
     }
     var onKey: ((Key) -> Void)?
 
-    override var keyCommands: [UIKeyCommand]? {
-        [UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(rewindKey)),
-         UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(forwardKey)),
-         UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(playPauseKey))]
+    /// `seekBarKey`: the arrows seek and nothing else gets them; Enter plays or pauses
+    func keyDown(_ event: KeyboardEvent) {
+        switch event.key {
+        case KeyboardEvent.Key.arrowLeft, KeyboardEvent.Key.arrowRight:
+            event.preventDefault()
+            event.stopPropagation()
+            onKey?(event.key == KeyboardEvent.Key.arrowLeft ? .rewind : .forward)
+        case KeyboardEvent.Key.enter:
+            onKey?(.playPause)
+        default:
+            break
+        }
     }
-
-    @objc private func rewindKey() { onKey?(.rewind) }
-    @objc private func forwardKey() { onKey?(.forward) }
-    @objc private func playPauseKey() { onKey?(.playPause) }
     private var hoverValue: CGFloat = 0
 
     /// True while the user is touching/dragging the bar.
@@ -442,7 +446,7 @@ private final class InterfaceProgressButton: UIControl {
     }
 }
 
-final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegate {
+final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegate, KeyboardEventListener {
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         guard let url = urls.first else { return }
@@ -903,25 +907,22 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
 
     override var prefersStatusBarHidden: Bool              { true }
     override var canBecomeFirstResponder: Bool { true }
+    /// `condition` of keybinds.svelte, `!isMiniplayer`, and no typing
+    private var handlesKeybinds: Bool {
+        !PlayerKeyBindings.isEditing(in: viewIfLoaded) && !isMinimizing
+            && !(MiniPlayerManager.shared.isActive && MiniPlayerManager.shared.activePlayer === self)
+    }
     override var keyCommands: [UIKeyCommand]? {
-        guard !PlayerKeyBindings.isEditing(in: viewIfLoaded), !isMinimizing,
-              !(MiniPlayerManager.shared.isActive && MiniPlayerManager.shared.activePlayer === self) else { return nil }
-        let commands = PlayerKeyBindings.commands(action: #selector(runPlayerKeyCommand(_:)))
-        // `if ($inputType === 'dpad') return` of the four arrow binds: the arrows move the focus then
-        guard Navigate.inputType == .dpad else { return commands }
-        let arrows = [UIKeyCommand.inputLeftArrow, UIKeyCommand.inputRightArrow,
-                      UIKeyCommand.inputUpArrow, UIKeyCommand.inputDownArrow]
-        return commands.filter { !arrows.contains($0.input ?? "") }
+        handlesKeybinds ? PlayerKeyBindings.commands() : nil
+    }
+    func keyDown(_ event: KeyboardEvent) {
+        guard handlesKeybinds else { return }
+        PlayerKeyBindings.run(event) { id, shift in runPlayerKeybind(id, shift: shift) }
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         becomeFirstResponder()
     }
-    @objc private func runPlayerKeyCommand(_ command: UIKeyCommand) {
-        guard let binding = PlayerKeyBindings.binding(for: command) else { return }
-        runPlayerKeybind(binding.id, shift: command.modifierFlags.contains(.shift))
-    }
-
     /// `on:navigate={() => resetMove(2000)}`: the controls are shown for the element that the focus moved to
     @objc private func elementDidNavigate(_ notification: Notification) {
         guard let element = notification.object as? UIView, element.isDescendant(of: view) else { return }
@@ -1075,6 +1076,8 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         seekPreview.isHidden = true
         overlay.addSubview(seekPreview)
         seekBar.onHover = { [weak self] fraction in self?.showSeekPreview(at: fraction) }
+        // a click on the bar is nothing in the interface; for a UIControl it ends a seek
+        seekBar.onDPadClick = {}
         seekBar.onKey = { [weak self] key in
             switch key {
             case .rewind: self?.performDoubleTapSeek(forward: false)
@@ -1308,6 +1311,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         //          onclick={() => goto(`/#/app/anime/${mediaInfo.media.id}`)}>`
         titleLabel.isUserInteractionEnabled = true
         titleLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(titleTapped)))
+        titleLabel.onDPadClick = { [weak self] in self?.titleTapped() }
         bottomBar.addSubview(titleLabel)
 
         // Hayase episodesmodal.svelte: session.description (text-sm font-light rgba(217,217,217,0.6))
@@ -1323,6 +1327,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         // opens the episode list — `<Sheet.Trigger class='... hover:underline'>`.
         episodeLabel.isUserInteractionEnabled = true
         episodeLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(episodeLabelTapped)))
+        episodeLabel.onDPadClick = { [weak self] in self?.episodeLabelTapped() }
         bottomBar.addSubview(episodeLabel)
 
         chapterLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1344,6 +1349,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         timeLabel.content = "0:00 / 0:00"
         timeLabel.isUserInteractionEnabled = true
         timeLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(toggleTimeFormat)))
+        timeLabel.onDPadClick = { [weak self] in self?.toggleTimeFormat() }
         // Text shadow
         bottomBar.addSubview(timeLabel)
 
@@ -1421,6 +1427,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         speedLabel.text = "" // Hidden when 1x
         speedLabel.isUserInteractionEnabled = true
         speedLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(speedLabelTapped)))
+        speedLabel.onDPadClick = { [weak self] in self?.speedLabelTapped() }
         bottomBar.addSubview(speedLabel)
 
         airPlayPicker.translatesAutoresizingMaskIntoConstraints = false

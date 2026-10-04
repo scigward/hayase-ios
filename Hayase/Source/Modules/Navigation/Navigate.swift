@@ -2,16 +2,17 @@
 //  Navigate.swift
 //  Hayase
 //
-//  Mirrors: src/lib/modules/navigate.ts: `inputType`, and what the arrow keys do (`navigate`): focus moves to
-//  the nearest element in the direction of the key, among the elements of the dialog that is open, or else of
-//  the page. Enter on the focused element is a click (`click`, `hover` and `keywrap` of navigate.ts, which the
-//  interface's own buttons are written with), and that element is drawn with the tint of
-//  `[data-input='dpad'] *:focus`.
+//  Mirrors: src/lib/modules/navigate.ts: `inputType`, and what the arrow keys do (`navigate`, the listener of the
+//  window): focus moves to the nearest element in the direction of the key, among the elements of the dialog
+//  that is open, or else of the page. Enter on the focused element is a click (`click`, `hover` and `keywrap` of
+//  navigate.ts, which the interface's own buttons are written with), and that element is drawn with the tint of
+//  `[data-input='dpad'] *:focus`. The keys come as `KeyboardEvent`s, from a controller or a keyboard.
 //
-//  The focus of the interface is the DOM's. UIKit's focus engine is the nearest thing to it, but on iOS it
-//  only runs for a hardware keyboard, and the arrows of a game controller never reach it, so the app keeps
-//  the focus of the interface itself: `activeElement`, which `isActiveElement` reads along with the
-//  engine's `isFocused` (what the views that are drawn `select:` while focused look at).
+//  The focus is `document.activeElement`: one element, which a press on the page takes it from (and the
+//  pointer moving does not), and which is only the focus of the page it is on: a dialog over it has the keys.
+//  UIKit's own focus engine is not where it is kept, because the app has to put the focus where a key says, on
+//  iOS, with no keyboard that the engine would answer to: `activeElement` is, and `isActiveElement` reads it
+//  along with the engine's `isFocused` (the views that are drawn `select:` while focused look at that).
 //
 //  What an "element" is: a UIView that the interface would have a `button`, `a[href]`, `input`, `select`,
 //  `textarea` or `tabindex` for. They are the controls of the app (a plain `UIControl()` is the click
@@ -70,12 +71,22 @@ extension UIView {
 // MARK: - Navigate
 
 enum Navigate {
-    /// `'up' | 'right' | 'down' | 'left'`
+    /// `'up' | 'right' | 'down' | 'left'`, and `DirectionKeyMap`
     enum Direction {
         case up
         case right
         case down
         case left
+
+        init?(key: String) {
+            switch key {
+            case KeyboardEvent.Key.arrowUp: self = .up
+            case KeyboardEvent.Key.arrowDown: self = .down
+            case KeyboardEvent.Key.arrowLeft: self = .left
+            case KeyboardEvent.Key.arrowRight: self = .right
+            default: return nil
+            }
+        }
     }
 
     /// `inputType` changed
@@ -84,12 +95,10 @@ enum Navigate {
     /// object is the element that was focused.
     static let didNavigate = Notification.Name("Navigate.didNavigate")
 
-    /// `inputType`: a touch or the pointer leaves D-pad focus, which a click on the page does in the browser
-    /// (the focus goes back to the body).
+    /// `inputType`
     static var inputType: InputType = .touch {
         didSet {
             guard inputType != oldValue else { return }
-            if inputType != .dpad { blur() }
             NotificationCenter.default.post(name: inputTypeDidChange, object: nil)
         }
     }
@@ -112,7 +121,9 @@ enum Navigate {
         window.addGestureRecognizer(hover)
     }
 
-    /// `pointerdown`: sees each touch as it lands and fails at once, so no other recognizer is held up or cancelled
+    /// `pointerdown`: sees each touch as it lands and fails at once, so no other recognizer is held up or cancelled.
+    /// A press on the page takes the focus from the element that has it, as it does in the browser; moving the
+    /// pointer does not.
     private final class PointerDownObserver: UIGestureRecognizer {
         override init(target: Any?, action: Selector?) {
             super.init(target: target, action: action)
@@ -125,6 +136,7 @@ enum Navigate {
             if let touch = touches.first {
                 Navigate.inputType = touch.type == .indirectPointer ? .mouse : .touch
             }
+            Navigate.blur()
             state = .failed
         }
     }
@@ -143,19 +155,28 @@ enum Navigate {
 
     private static var repeatCount = 0
 
-    /// `navigate(e)`: an arrow key was pressed. `isRepeat` is `e.repeat`.
-    static func navigate(_ direction: Direction, isRepeat: Bool = false) {
+    /// The first half of `navigate(e)`: the arrow key it is, slowed down while it repeats, with the default
+    /// of the key prevented. Nil when the key is not an arrow, or this repeat is one that is skipped.
+    static func accepts(_ event: KeyboardEvent) -> Direction? {
+        guard let direction = Direction(key: event.key) else { return nil }
         // slow down, so its not as jarring
-        repeatCount = isRepeat ? (repeatCount + 1) % 8 : 0
-        guard repeatCount == 0 else { return }
+        repeatCount = event.isRepeat ? (repeatCount + 1) % 8 : 0
+        event.preventDefault()
+        guard repeatCount == 0 else { return nil }
         inputType = .dpad
-        navigateDPad(direction)
+        return direction
+    }
+
+    /// `navigate(e)`, the listener of the window
+    static func navigate(_ event: KeyboardEvent) {
+        guard let direction = accepts(event) else { return }
+        navigateDPad(direction, event)
     }
 
     /// `navigateDPad`
-    private static func navigateDPad(_ direction: Direction) {
+    private static func navigateDPad(_ direction: Direction, _ event: KeyboardEvent) {
         guard let container = container else { return }
-        let elements = focusableElements(in: container)
+        let elements = focusableElements(in: container) + previewElements(of: container)
 
         guard let current = liveActiveElement(in: container) else {
             focusElement(firstElement(of: elements))
@@ -167,6 +188,9 @@ enum Navigate {
             if direction == .left, input.offset(from: input.beginningOfDocument, to: range.start) != 0 { return }
             if direction == .right, input.offset(from: range.end, to: input.endOfDocument) != 0 { return }
         }
+
+        event.preventDefault()
+        event.stopPropagation()
 
         guard let window = container.window else { return }
         let others = elements.filter { $0 !== current }
@@ -197,10 +221,28 @@ enum Navigate {
         return top?.viewIfLoaded
     }
 
+    /// The preview card of a hovered card is in the page, where the interface has it: a dialog that is open
+    /// is all the page there is for the keys, as a dialog keeps the focus.
+    private static func previewElements(of container: UIView) -> [UIView] {
+        guard container === window?.rootViewController?.viewIfLoaded, let preview = Hover.shared.previewView else { return [] }
+        return focusableElements(in: preview) + (isElement(preview) ? [preview] : [])
+    }
+
+    /// A popover that is a view of the window, over the page, and has the keys: what a dropdown takes the focus into.
+    /// Its listener gets the key before the page's.
+    static func overlay(outside container: UIView) -> UIView? {
+        guard let overlay = UIResponder.currentFirstResponder as? UIView, overlay is KeyboardEventListener,
+              overlay.window != nil, !overlay.isDescendant(of: container) else { return nil }
+        return overlay
+    }
+
     /// The active element when it is still on the page that is shown; else the body
     static func liveActiveElement(in container: UIView) -> UIView? {
-        guard let element = activeElement, element.isDescendant(of: container) else { return nil }
-        return element
+        guard let element = activeElement else { return nil }
+        if element.isDescendant(of: container) { return element }
+        if container === window?.rootViewController?.viewIfLoaded, let preview = Hover.shared.previewView,
+           element.isDescendant(of: preview) { return element }
+        return nil
     }
 
     // MARK: - Focus
@@ -221,7 +263,8 @@ enum Navigate {
         return true
     }
 
-    private static func blur() {
+    /// Focus goes back to the body
+    static func blur() {
         guard let previous = activeElement else { return }
         activeElement = nil
         focusFill.removeFromSuperview()
@@ -306,7 +349,7 @@ enum Navigate {
         return elements
     }
 
-    private static func isElement(_ view: UIView) -> Bool {
+    static func isElement(_ view: UIView) -> Bool {
         if view.onDPadClick != nil { return true }
         if let control = view as? UIControl {
             // a bare UIControl is the click catcher of a dialog or popover: not an element

@@ -13,6 +13,8 @@ final class Hover: NSObject {
     private weak var activeSource: UIView?
     private weak var activeHost: UIViewController?
     private var previewCard: PreviewCard?
+    /// The preview that is up, for D-pad navigation to reach what is in it
+    var previewView: UIView? { previewCard }
     private var activeMediaID: Int?
     private var activeSourceFrameInWindow: CGRect = .null
     private var sourceTracker: CADisplayLink?

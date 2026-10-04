@@ -1,7 +1,7 @@
 // Mirrors: src/lib/components/ui/dialog/{dialog-content,dialog-overlay}.svelte
 import UIKit
 
-class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegate {
+class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegate, KeyboardEventListener {
     let content = UIStackView()
     var onClose: (() -> Void)?
     /// Only content with `!w-auto` (such as the torrent-library confirmation)
@@ -224,7 +224,15 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
     }
     override func accessibilityPerformEscape() -> Bool { close(); return true }
     override var keyCommands: [UIKeyCommand]? {
-        [UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(close))]
+        [.keydown(KeyboardEvent.Key.escape)]
+    }
+
+    /// `useEscapeKeydown`: the dialog that is the closest to the key closes, and the key is its alone
+    func keyDown(_ event: KeyboardEvent) {
+        guard event.key == KeyboardEvent.Key.escape else { return }
+        close()
+        event.preventDefault()
+        event.stopPropagation()
     }
 }
 

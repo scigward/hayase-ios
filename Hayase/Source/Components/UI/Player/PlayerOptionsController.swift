@@ -167,7 +167,7 @@ private func groupByLanguage(_ tracks: [MPVTrack]) -> [(lang: String, tracks: [M
 /// - Active item: primary bg / background text
 /// - Expandable items show a chevron on the right
 /// - Tapping outside the container dismisses the menu
-final class PlayerOptionsController: UIViewController {
+final class PlayerOptionsController: UIViewController, KeyboardEventListener {
 
     // MARK: - Configuration callbacks
 
@@ -294,13 +294,14 @@ final class PlayerOptionsController: UIViewController {
     override var shouldAutorotate: Bool { presentingViewController?.shouldAutorotate ?? true }
     override var canBecomeFirstResponder: Bool { true }
     override var keyCommands: [UIKeyCommand]? {
-        PlayerKeyBindings.isEditing(in: viewIfLoaded) ? nil : PlayerKeyBindings.commands(action: #selector(runKeybind(_:)))
+        PlayerKeyBindings.isEditing(in: viewIfLoaded) ? nil : PlayerKeyBindings.commands()
+    }
+    /// The binds of the player work over the options too, which are not in the player's own part of the page
+    func keyDown(_ event: KeyboardEvent) {
+        guard !PlayerKeyBindings.isEditing(in: viewIfLoaded) else { return }
+        PlayerKeyBindings.run(event) { [weak self] id, shift in self?.onKeybindAction?(id, shift) }
     }
     override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); becomeFirstResponder() }
-    @objc private func runKeybind(_ command: UIKeyCommand) {
-        guard let binding = PlayerKeyBindings.binding(for: command) else { return }
-        onKeybindAction?(binding.id, command.modifierFlags.contains(.shift))
-    }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()

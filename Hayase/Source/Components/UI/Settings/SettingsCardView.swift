@@ -197,7 +197,7 @@ final class SettingsActionsView: UIStackView, SettingsResponsiveView {
     func updateLayout(viewportWidth: CGFloat) { axis = viewportWidth >= 768 ? .horizontal : .vertical }
 }
 
-final class SettingsSliderControl: UIControl {
+final class SettingsSliderControl: UIControl, KeyboardEventListener {
     private let track = UIView()
     private let fill = UIView()
     private let thumb = UIView()
@@ -242,13 +242,19 @@ final class SettingsSliderControl: UIControl {
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         bounds.insetBy(dx: 0, dy: -14).contains(point)
     }
-    /// the arrows of a slider that has the focus
-    override var keyCommands: [UIKeyCommand]? {
-        [UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(decrementKey)),
-         UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(incrementKey))]
+    /// The thumb of the slider (melt-ui) takes the four arrows: Right and Up add a step, Left and Down take one,
+    /// and the key is only prevented, so it goes on to `navigate` as well
+    func keyDown(_ event: KeyboardEvent) {
+        switch event.key {
+        case KeyboardEvent.Key.arrowLeft, KeyboardEvent.Key.arrowDown:
+            accessibilityDecrement()
+        case KeyboardEvent.Key.arrowRight, KeyboardEvent.Key.arrowUp:
+            accessibilityIncrement()
+        default:
+            return
+        }
+        event.preventDefault()
     }
-    @objc private func decrementKey() { accessibilityDecrement() }
-    @objc private func incrementKey() { accessibilityIncrement() }
     override func accessibilityIncrement() { setValue(value + step); sendActions(for: .editingDidEnd) }
     override func accessibilityDecrement() { setValue(value - step); sendActions(for: .editingDidEnd) }
     private func update(_ touch: UITouch) {

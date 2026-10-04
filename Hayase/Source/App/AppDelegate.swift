@@ -19,6 +19,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         window?.overrideUserInterfaceStyle = .dark
         UIScrollView.installInstantTouches()
         if let window { Navigate.observePointer(in: window) }   // `inputType`
+        HardwareKeys.start()
         Gamepad.shared.start()
         AniListRefocus.shared.start()
         TrackerAggregator.start()
@@ -175,6 +176,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         guard !hasEnteredForeground else { return }
         hasEnteredForeground = true
         if window?.rootViewController is HayaseSidebarController { MiniPlayerManager.shared.restoreSessionIfNeeded() }
+    }
+
+    // MARK: Keys
+
+    /// The end of the responder chain is the window of the page: a key of a hardware keyboard that no responder
+    /// had a command for gets here. The arrows are what `navigate` listens for there, and Enter is the click of the
+    /// focused element that the browser makes.
+    override var keyCommands: [UIKeyCommand]? {
+        [.keydown(KeyboardEvent.Key.arrowUp), .keydown(KeyboardEvent.Key.arrowDown),
+         .keydown(KeyboardEvent.Key.arrowLeft), .keydown(KeyboardEvent.Key.arrowRight),
+         .keydown(KeyboardEvent.Key.enter)]
     }
 
 	// MARK: Properties

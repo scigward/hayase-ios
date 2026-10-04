@@ -246,6 +246,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         tap.cancelsTouchesInView = false
         tap.delegate = self
         addGestureRecognizer(tap)
+        onDPadClick = { [weak self] in self?.cardTapped() }
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {

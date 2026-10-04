@@ -1,7 +1,7 @@
 // Mirrors the interface dropdown-menu and tooltip primitives used by tables.
 import UIKit
 
-final class TorrentClientSortPopover: UIView {
+final class TorrentClientSortPopover: UIView, KeyboardEventListener {
     var onDismiss: (() -> Void)?
     private weak var sourceView: UIView?
     private let outside = UIControl()
@@ -51,19 +51,35 @@ final class TorrentClientSortPopover: UIView {
 
     override var canBecomeFirstResponder: Bool { true }
     override var keyCommands: [UIKeyCommand]? {
-        [UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(close)),
-         UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(moveFocus(_:))),
-         UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(moveFocus(_:))),
-         UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(chooseFocusedRow))]
+        [.keydown(KeyboardEvent.Key.escape), .keydown(KeyboardEvent.Key.arrowUp),
+         .keydown(KeyboardEvent.Key.arrowDown), .keydown(KeyboardEvent.Key.enter)]
     }
-    @objc private func moveFocus(_ command: UIKeyCommand) {
+
+    /// The arrows go through the two rows, Enter chooses one, and Escape closes the menu that is the closest to
+    /// the key. The menu takes the keys it has, as a dropdown does.
+    func keyDown(_ event: KeyboardEvent) {
+        switch event.key {
+        case KeyboardEvent.Key.escape:
+            close()
+        case KeyboardEvent.Key.arrowUp, KeyboardEvent.Key.arrowDown:
+            if Navigate.accepts(event) != nil { moveFocus(down: event.key == KeyboardEvent.Key.arrowDown) }
+        case KeyboardEvent.Key.enter:
+            chooseFocusedRow()
+        default:
+            return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+    }
+
+    private func moveFocus(down: Bool) {
         let next: Int
-        if let keyboardRow { next = (keyboardRow + (command.input == UIKeyCommand.inputDownArrow ? 1 : -1) + 2) % 2 }
-        else { next = command.input == UIKeyCommand.inputDownArrow ? 0 : 1 }
+        if let keyboardRow { next = (keyboardRow + (down ? 1 : -1) + 2) % 2 }
+        else { next = down ? 0 : 1 }
         keyboardRow = next
         for (index, view) in content.subviews.enumerated() { (view as? UIButton)?.isHighlighted = index == next }
     }
-    @objc private func chooseFocusedRow() {
+    private func chooseFocusedRow() {
         guard isUserInteractionEnabled else { return }
         onSort((keyboardRow ?? 0) == 0)
         close()

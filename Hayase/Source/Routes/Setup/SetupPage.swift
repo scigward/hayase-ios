@@ -249,6 +249,8 @@ private final class SetupTermsLabel: UILabel {
     }
 
     private var links: [Link] = []
+    /// `a[href]`: a view over each link, which D-pad navigation can focus and click
+    private var linkViews: [UIView] = []
     private static let padding = CGSize(width: 4, height: 8)    // px-1 py-2
 
     override init(frame: CGRect) {
@@ -303,10 +305,29 @@ private final class SetupTermsLabel: UILabel {
         }
         isAccessibilityElement = true
         accessibilityLabel = "I agree to the " + links.map(\.title).joined(separator: " and ")
+
+        linkViews.forEach { $0.removeFromSuperview() }
+        linkViews = links.map { link in
+            let view = UIView()
+            view.isUserInteractionEnabled = false
+            view.onDPadClick = { UIApplication.shared.open(link.url) }
+            addSubview(view)
+            return view
+        }
+        setNeedsLayout()
     }
 
-    @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
-        guard let text = attributedText, bounds.width > 0 else { return }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        for (link, view) in zip(links, linkViews) {
+            let box = boxes(of: link).reduce(CGRect.null) { $0.union($1) }
+            view.frame = box.isNull ? .zero : box
+        }
+    }
+
+    /// Where a link is: the rectangles of its text (one for each line), with the padding of the inline box
+    private func boxes(of link: Link) -> [CGRect] {
+        guard let text = attributedText, bounds.width > 0 else { return [] }
         let storage = NSTextStorage(attributedString: text)
         let manager = NSLayoutManager()
         let container = NSTextContainer(size: CGSize(width: bounds.width, height: .greatestFiniteMagnitude))
@@ -316,22 +337,23 @@ private final class SetupTermsLabel: UILabel {
         storage.addLayoutManager(manager)
         manager.ensureLayout(for: container)
 
-        let point = recognizer.location(in: self)
         let contentHeight = UIFont.nunito(ofSize: 16, weight: .medium).lineHeight
-        for link in links {
-            let glyphs = manager.glyphRange(forCharacterRange: link.range, actualCharacterRange: nil)
-            var hit = false
-            manager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
-                                            in: container) { rect, _ in
-                // The box of an inline element is the font's content area, with the padding around it
-                let area = CGRect(x: rect.minX - Self.padding.width, y: rect.midY - contentHeight / 2 - Self.padding.height,
-                                  width: rect.width + 2 * Self.padding.width, height: contentHeight + 2 * Self.padding.height)
-                if area.contains(point) { hit = true }
-            }
-            if hit {
-                UIApplication.shared.open(link.url)
-                return
-            }
+        let glyphs = manager.glyphRange(forCharacterRange: link.range, actualCharacterRange: nil)
+        var boxes: [CGRect] = []
+        manager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+                                        in: container) { rect, _ in
+            // The box of an inline element is the font's content area, with the padding around it
+            boxes.append(CGRect(x: rect.minX - Self.padding.width, y: rect.midY - contentHeight / 2 - Self.padding.height,
+                                width: rect.width + 2 * Self.padding.width, height: contentHeight + 2 * Self.padding.height))
+        }
+        return boxes
+    }
+
+    @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
+        let point = recognizer.location(in: self)
+        for link in links where boxes(of: link).contains(where: { $0.contains(point) }) {
+            UIApplication.shared.open(link.url)
+            return
         }
     }
 }
