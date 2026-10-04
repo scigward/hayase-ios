@@ -36,7 +36,7 @@ final class Input: UITextField {
     /// app.css: `input:active:not(.no-scale) { transition: all 0.1s ease-in-out; transform: scale(0.98) }`, and for
     /// a `no-scale` field `.scale-parent:has(.no-scale:active)`, which scales the box around it. The view to
     /// scale while the field is pressed: the field itself, or its box. A field with none is not scaled.
-    var pressScaleTarget: UIView?
+    weak var pressScaleTarget: UIView?
     private var pressAnimator: UIViewPropertyAnimator?
     private weak var pressedTarget: UIView?
 

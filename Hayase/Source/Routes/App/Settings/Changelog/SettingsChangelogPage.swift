@@ -45,6 +45,12 @@ final class SettingsChangelogView: UIView, SettingsResponsiveView {
                   loadedEntries: configuration.2, error: configuration.3)
     }
 
+    /// Mirrors the date's `sticky top-0` within each wide changelog grid row.
+    func updateStickyDates(in scrollView: UIScrollView) {
+        entries.arrangedSubviews.compactMap { $0 as? HayaseChangelogEntryView }
+            .forEach { $0.updateStickyDate(in: scrollView) }
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         setup()
@@ -57,12 +63,6 @@ final class SettingsChangelogView: UIView, SettingsResponsiveView {
 
     private func setup() {
         backgroundColor = .clear
-
-        titleLabel.font = .nunito(ofSize: 36, weight: .bold)
-        titleLabel.textColor = UIColor.HayaseTheme.foreground
-        descriptionLabel.font = .nunito(ofSize: 14)
-        descriptionLabel.numberOfLines = 0
-        descriptionLabel.textColor = UIColor.HayaseTheme.mutedForeground
 
         intro.axis = .vertical
         intro.spacing = 12
@@ -104,10 +104,14 @@ final class SettingsChangelogView: UIView, SettingsResponsiveView {
                    error: String?) {
         configuration = (title, description, loadedEntries, error)
         isWide = wide
-        titleLabel.text = title
-        descriptionLabel.text = description
+        titleLabel.font = .nunito(ofSize: 36, weight: .bold)
+        titleLabel.attributedText = SettingsTypography.label(title, size: 36, lineHeight: 40, weight: .bold).attributedText
+        descriptionLabel.font = .nunito(ofSize: 14)
+        descriptionLabel.numberOfLines = 0
+        descriptionLabel.attributedText = SettingsTypography.label(description, size: 14, lineHeight: 20,
+            color: UIColor.HayaseTheme.mutedForeground).attributedText
         let left = wide ? max(0, self.bounds.width * 0.25) : 16
-        intro.layoutMargins = UIEdgeInsets(top: 0, left: left, bottom: 0, right: 16)
+        intro.layoutMargins = UIEdgeInsets(top: 0, left: left, bottom: 0, right: wide ? 0 : 16)
         intro.alignment = .fill
 
         entries.arrangedSubviews.forEach {
@@ -121,7 +125,7 @@ final class SettingsChangelogView: UIView, SettingsResponsiveView {
         } else if let error {
             entries.addArrangedSubview(HayaseChangelogMessageView(
                 title: "Failed to load changelog",
-                message: error))
+                message: error, wide: wide))
         } else {
             for _ in 0..<5 {
                 let entry = HayaseChangelogSkeletonEntry()
@@ -133,6 +137,9 @@ final class SettingsChangelogView: UIView, SettingsResponsiveView {
 }
 
 private final class HayaseChangelogEntryView: UIView {
+    private let isWide: Bool
+    private let dateContainer = UIView()
+    private weak var stickyDateLabel: UILabel?
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -141,6 +148,7 @@ private final class HayaseChangelogEntryView: UIView {
     }()
 
     init(entry: HayaseChangelogEntry, wide: Bool) {
+        isWide = wide
         super.init(frame: .zero)
 
         let separator = UIView()
@@ -148,41 +156,32 @@ private final class HayaseChangelogEntryView: UIView {
         separator.translatesAutoresizingMaskIntoConstraints = false
         addSubview(separator)
 
-        let dateLabel = UILabel()
-        dateLabel.text = Self.dateFormatter.string(from: entry.date)
-        dateLabel.font = .nunito(ofSize: 12)
-        dateLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        let dateLabel = SettingsTypography.label(Self.dateFormatter.string(from: entry.date), size: 12, lineHeight: 16)
 
-        let commitLabel = UILabel()
-        commitLabel.text = String(entry.sha.prefix(6))
-        commitLabel.font = .nunito(ofSize: 18, weight: .bold)
-        commitLabel.textColor = UIColor.HayaseTheme.foreground
+        let commitLabel = SettingsTypography.label(String(entry.sha.prefix(6)), size: 18, lineHeight: 28, weight: .bold)
 
-        let bodyLabel = UILabel()
-        bodyLabel.text = entry.body.replacingOccurrences(of: "- ", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        bodyLabel.font = .nunito(ofSize: 16)
-        bodyLabel.textColor = UIColor.HayaseTheme.mutedForeground
-        bodyLabel.numberOfLines = 0
+        let bodyLabel = SettingsTypography.label(entry.body.replacingOccurrences(of: "- ", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines), size: 16, lineHeight: 24,
+            color: UIColor.HayaseTheme.mutedForeground)
 
         let body = UIStackView(arrangedSubviews: [commitLabel, bodyLabel])
         body.axis = .vertical
         body.alignment = .fill
         body.spacing = 12
 
-        let dateContainer = UIView()
+        stickyDateLabel = dateLabel
         dateContainer.addSubview(dateLabel)
         dateLabel.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             dateLabel.topAnchor.constraint(equalTo: dateContainer.topAnchor, constant: 12),
             dateLabel.leadingAnchor.constraint(equalTo: dateContainer.leadingAnchor),
             dateLabel.trailingAnchor.constraint(lessThanOrEqualTo: dateContainer.trailingAnchor, constant: -12),
-            dateLabel.bottomAnchor.constraint(equalTo: dateContainer.bottomAnchor),
+            dateLabel.bottomAnchor.constraint(lessThanOrEqualTo: dateContainer.bottomAnchor),
         ])
 
         let content = UIStackView()
         content.axis = wide ? .horizontal : .vertical
-        content.alignment = wide ? .top : .fill
+        content.alignment = .fill
         content.spacing = 0
         if wide {
             content.addArrangedSubview(dateContainer)
@@ -196,13 +195,14 @@ private final class HayaseChangelogEntryView: UIView {
         addSubview(content)
 
         NSLayoutConstraint.activate([
-            separator.topAnchor.constraint(equalTo: topAnchor, constant: 24),
+            // The settings page's space-y-3 sibling rule overrides Separator's my-6.
+            separator.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1),
-            content.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 40),
+            content.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 28),
             content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: wide ? 0 : 16),
-            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: wide ? 0 : -16),
             content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
         ])
     }
@@ -210,30 +210,37 @@ private final class HayaseChangelogEntryView: UIView {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    func updateStickyDate(in scrollView: UIScrollView) {
+        guard isWide, let label = stickyDateLabel else { return }
+        let normalTop = dateContainer.convert(dateContainer.bounds, to: scrollView).minY
+        let viewportTop = scrollView.bounds.minY + scrollView.adjustedContentInset.top
+        // The sticky element includes its pt-3 padding; retain that 12pt inset
+        // both at the top of the viewport and at the end of its parent row.
+        let maximum = max(0, dateContainer.bounds.height - label.bounds.height - 12)
+        let translation = min(maximum, max(0, viewportTop - normalTop))
+        label.transform = CGAffineTransform(translationX: 0, y: translation)
+    }
 }
 
 private final class HayaseChangelogMessageView: UIView {
-    init(title: String, message: String) {
+    init(title: String, message: String, wide: Bool) {
         super.init(frame: .zero)
-        let titleLabel = UILabel()
-        titleLabel.text = title
-        titleLabel.font = .nunito(ofSize: 24, weight: .bold)
-        titleLabel.textColor = UIColor.HayaseTheme.foreground
-        let messageLabel = UILabel()
-        messageLabel.text = message
-        messageLabel.font = .nunito(ofSize: 12)
-        messageLabel.textColor = UIColor.HayaseTheme.mutedForeground
-        messageLabel.numberOfLines = 0
+        let titleLabel = SettingsTypography.label(title, size: 24, lineHeight: 32, weight: .bold)
+        let messageLabel = SettingsTypography.label(message, size: 12, lineHeight: 16,
+            color: UIColor.HayaseTheme.mutedForeground)
         let stack = UIStackView(arrangedSubviews: [titleLabel, messageLabel])
         stack.axis = .vertical
-        stack.spacing = 8
+        stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // The page's sibling gap precedes the web error's h-60 container.
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 252),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: wide ? 0 : 16),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: wide ? 0 : -16),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
         ])
     }
 
@@ -248,6 +255,8 @@ private final class HayaseChangelogSkeletonEntry: UIView {
     private let body = UIStackView()
     private let content = UIStackView()
     private lazy var wideDateWidth = dateContainer.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.25)
+    private var contentLeading: NSLayoutConstraint?
+    private var contentTrailing: NSLayoutConstraint?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -268,10 +277,9 @@ private final class HayaseChangelogSkeletonEntry: UIView {
         dateSkeleton.translatesAutoresizingMaskIntoConstraints = false
         dateContainer.addSubview(dateSkeleton)
         NSLayoutConstraint.activate([
-            dateContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 24),
-            dateSkeleton.topAnchor.constraint(equalTo: dateContainer.topAnchor, constant: 8),
-            dateSkeleton.leadingAnchor.constraint(equalTo: dateContainer.leadingAnchor, constant: 16),
-            dateSkeleton.trailingAnchor.constraint(lessThanOrEqualTo: dateContainer.trailingAnchor, constant: -12),
+            dateContainer.heightAnchor.constraint(equalToConstant: 8),
+            dateSkeleton.topAnchor.constraint(equalTo: dateContainer.topAnchor),
+            dateSkeleton.leadingAnchor.constraint(equalTo: dateContainer.leadingAnchor),
             dateSkeleton.bottomAnchor.constraint(lessThanOrEqualTo: dateContainer.bottomAnchor),
         ])
 
@@ -293,14 +301,17 @@ private final class HayaseChangelogSkeletonEntry: UIView {
         content.addArrangedSubview(body)
         addSubview(content)
 
+        let leading = content.leadingAnchor.constraint(equalTo: leadingAnchor)
+        let trailing = content.trailingAnchor.constraint(equalTo: trailingAnchor)
+        contentLeading = leading
+        contentTrailing = trailing
         NSLayoutConstraint.activate([
-            separator.topAnchor.constraint(equalTo: topAnchor, constant: 24),
+            separator.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1),
-            content.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 40),
-            content.leadingAnchor.constraint(equalTo: leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            content.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 28),
+            leading, trailing,
             content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
         ])
         configure(wide: true)
@@ -313,7 +324,10 @@ private final class HayaseChangelogSkeletonEntry: UIView {
             view.removeFromSuperview()
         }
         content.axis = wide ? .horizontal : .vertical
-        content.spacing = wide ? 0 : 16
+        content.alignment = wide ? .top : .fill
+        content.spacing = 0
+        contentLeading?.constant = wide ? 0 : 16
+        contentTrailing?.constant = wide ? 0 : -16
         if wide {
             content.addArrangedSubview(dateContainer)
             content.addArrangedSubview(body)
@@ -331,9 +345,10 @@ private final class HayaseChangelogSkeletonEntry: UIView {
         view.widthAnchor.constraint(equalToConstant: width).isActive = true
         view.heightAnchor.constraint(equalToConstant: height).isActive = true
         let pulse = CABasicAnimation(keyPath: "opacity")
-        pulse.fromValue = 0.45
-        pulse.toValue = 1
-        pulse.duration = 0.9
+        pulse.fromValue = 1
+        pulse.toValue = 0.5
+        pulse.duration = 1
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         pulse.autoreverses = true
         pulse.repeatCount = .infinity
         view.layer.add(pulse, forKey: "hayasePulse")

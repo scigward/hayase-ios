@@ -18,14 +18,14 @@ private var tooltipKey = 0
 
 extension UIView {
     /// `<Tooltip.Root><Tooltip.Trigger>…</Tooltip.Trigger><Tooltip.Content>text</Tooltip.Content></Tooltip.Root>`
-    func attachTooltip(_ text: String) {
-        let tooltip = Tooltip(trigger: self, text: text)
+    func attachTooltip(_ text: String, maximumWidth: CGFloat? = nil) {
+        let tooltip = Tooltip(trigger: self, text: text, maximumWidth: maximumWidth)
         objc_setAssociatedObject(self, &tooltipKey, tooltip, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 }
 
 final class Tooltip: NSObject {
-    private static let openDelay: TimeInterval = 700
+    private static let openDelay: TimeInterval = 0.7 // bits-ui's 700ms, not 700 seconds
     private static let sideOffset: CGFloat = 4
     private static let transition: TimeInterval = 0.15
     /// svelte/easing cubicOut
@@ -33,19 +33,25 @@ final class Tooltip: NSObject {
 
     private weak var trigger: UIView?
     private let text: String
+    private let maximumWidth: CGFloat?
     private var pendingOpen: DispatchWorkItem?
     private var bubble: TooltipBubble?
     private var watchdog: Timer?
     private var isHovering = false
+    private var hoverRecognizer: UIHoverGestureRecognizer?
 
-    init(trigger: UIView, text: String) {
+    init(trigger: UIView, text: String, maximumWidth: CGFloat? = nil) {
         self.trigger = trigger
         self.text = text
+        self.maximumWidth = maximumWidth
         super.init()
-        trigger.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hoverChanged(_:))))
+        let recognizer = UIHoverGestureRecognizer(target: self, action: #selector(hoverChanged(_:)))
+        hoverRecognizer = recognizer
+        trigger.addGestureRecognizer(recognizer)
     }
 
     deinit {
+        if let hoverRecognizer { trigger?.removeGestureRecognizer(hoverRecognizer) }
         pendingOpen?.cancel()
         watchdog?.invalidate()
         bubble?.removeFromSuperview()
@@ -75,7 +81,7 @@ final class Tooltip: NSObject {
     private func open() {
         guard isHovering, bubble == nil, let trigger, trigger.window != nil,
               let host = trigger.window?.rootViewController?.view else { return }
-        let bubble = TooltipBubble(text: text)
+        let bubble = TooltipBubble(text: text, maximumWidth: min(maximumWidth ?? host.bounds.width, host.bounds.width))
         host.addSubview(bubble)
         let size = bubble.intrinsicContentSize
         let anchor = trigger.convert(trigger.bounds, to: host)
@@ -121,17 +127,19 @@ final class Tooltip: NSObject {
 /// `rounded-md px-3 py-1.5 text-xs`: 12pt text on a 16pt line, padded 12pt by 6pt.
 private final class TooltipBubble: UIView {
     private let label = UILabel()
+    private let maximumWidth: CGFloat
 
-    init(text: String) {
+    init(text: String, maximumWidth: CGFloat) {
+        self.maximumWidth = max(24, maximumWidth)
         super.init(frame: .zero)
         backgroundColor = UIColor.HayaseTheme.primary
         layer.cornerRadius = 6
         clipsToBounds = true
         isUserInteractionEnabled = false
-        label.numberOfLines = 1
+        label.numberOfLines = 0
         label.attributedText = CSSText.string(text, font: .nunito(ofSize: 12),
                                               color: UIColor.HayaseTheme.primaryForeground,
-                                              lineHeight: 16, lineBreak: .byClipping)
+                                              lineHeight: 16, lineBreak: .byWordWrapping)
         addSubview(label)
         isAccessibilityElement = false
     }
@@ -141,12 +149,12 @@ private final class TooltipBubble: UIView {
     }
 
     override var intrinsicContentSize: CGSize {
-        let text = label.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 16))
-        return CGSize(width: ceil(text.width) + 24, height: 28)
+        let text = label.sizeThatFits(CGSize(width: maximumWidth - 24, height: CGFloat.greatestFiniteMagnitude))
+        return CGSize(width: min(maximumWidth, ceil(text.width) + 24), height: ceil(text.height) + 12)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        label.frame = CGRect(x: 12, y: 6, width: bounds.width - 24, height: 16)
+        label.frame = bounds.insetBy(dx: 12, dy: 6)
     }
 }

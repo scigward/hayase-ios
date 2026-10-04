@@ -357,6 +357,12 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
     /// mirrors TorrentSource.test()
     func test() async throws -> Bool {
+        let result = try await testResult()
+        return (result as? Bool) ?? true
+    }
+
+    /// Keep a provider's custom status text for the settings tooltip instead of collapsing it to true.
+    func testResult() async throws -> Any {
         guard webView != nil else { throw WorkerError.notLoaded }
         let callId = UUID().uuidString
         // 'void' prefix prevents iOS 16+ from awaiting the IIFE's returned Promise (same
@@ -399,7 +405,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
                 }
             }
         }
-        return (result as? Bool) ?? true
+        return result
     }
 
     // MARK: - Destroy

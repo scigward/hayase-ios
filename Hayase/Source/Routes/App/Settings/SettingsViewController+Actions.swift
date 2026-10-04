@@ -14,10 +14,7 @@ extension SettingsViewController {
         scaleCountdown = 10
         let alert = SettingsDialogViewController(title: "Keep this UI scale?", maximumWidth: 448)
         alert.panelColor = UIColor.HayaseTheme.background   // bg-background
-        let message = SettingsTypography.label(scaleConfirmationMessage, size: 14, lineHeight: 20,
-            color: UIColor.HayaseTheme.mutedForeground)
-        scaleMessageLabel = message
-        alert.content.addArrangedSubview(message)
+        alert.headerDescription = scaleConfirmationMessage
         let revert = SettingsTypography.button("Revert", destructive: true)
         revert.addAction(UIAction { [weak self] _ in
             self?.revertScaleChange()
@@ -26,8 +23,7 @@ extension SettingsViewController {
         keep.addAction(UIAction { [weak self] _ in
             self?.keepScaleChange()
         }, for: .touchUpInside)
-        let actions = UIStackView(arrangedSubviews: [UIView(), revert, keep])
-        actions.spacing = 8
+        let actions = SettingsDialogFooter(buttons: [revert, keep])
         alert.content.addArrangedSubview(actions)
         alert.onClose = { [weak self] in self?.revertScaleChange() }
         scaleAlert = alert
@@ -38,7 +34,7 @@ extension SettingsViewController {
             if self.scaleCountdown <= 0 {
                 self.revertScaleChange()
             } else {
-                self.scaleMessageLabel?.text = self.scaleConfirmationMessage
+                self.scaleAlert?.headerDescription = self.scaleConfirmationMessage
             }
         }
     }
@@ -100,6 +96,14 @@ extension SettingsViewController {
             allowsMultiple: false, sourceView: anchor)
         picker.onSelectionChanged = { [weak self, weak anchor] values in
             guard let value = values.first else { return }
+            if key == "pref_torrentLocation" {
+                do { try TorrentBackendSettings.prepareDownloadLocation(value) }
+                catch {
+                    AppErrorToast.show(error.localizedDescription,
+                        title: "Failed to select download folder. Please try again.", duration: 15)
+                    return
+                }
+            }
             Settings.write(value, forKey: key)
             anchor?.configure(text: options.first(where: { $0.key == value })?.label ?? value, placeholder: false)
             self?.applyTorrentSettingsIfNeeded(forKey: key)
@@ -168,6 +172,8 @@ extension SettingsViewController {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("hayase-settings.json")
         do {
             try data.write(to: url, options: .atomic)
+            // saveFile downloads and also copies the serialized settings upstream.
+            UIPasteboard.general.string = String(data: data, encoding: .utf8)
             let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
             activity.completionWithItemsHandler = { _, _, _, error in
                 guard error != nil else { return }
@@ -193,16 +199,11 @@ extension SettingsViewController {
             try SettingsFileService.importData(data)
             TorrentBackendManager.shared.applyCurrentSettings()
             HayaseInterfaceScale.apply()
-            reloadContent()
-            presentMessage(title: "Settings Imported", message: "Your settings were imported successfully.")
+            (UIApplication.shared.delegate as? AppDelegate)?.restartInterface()
         } catch {
             AppErrorToast.show("Failed to import settings from file, make sure the selected file is valid JSON.",
                 title: "Failed to import settings", duration: 4)
         }
-    }
-
-    func presentMessage(title: String, message: String) {
-        SettingsToast.show(title + "\n" + message, in: view)
     }
 
     func controlWidth(for row: Row) -> CGFloat {

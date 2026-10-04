@@ -112,9 +112,18 @@ final class SettingsLayoutView: UIView, UIScrollViewDelegate {
         let height = max(asideHeight, contentY + pageHeight + bottomPadding)
         scrollView.contentSize = CGSize(width: available, height: height)
         positionAside()
+        updateStickyDates()
     }
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { positionAside() }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        positionAside()
+        updateStickyDates()
+    }
+
+    private func updateStickyDates() {
+        page.arrangedSubviews.compactMap { $0 as? SettingsChangelogView }
+            .forEach { $0.updateStickyDates(in: scrollView) }
+    }
 
     private func positionAside() {
         guard !navigation.isHidden else { return }

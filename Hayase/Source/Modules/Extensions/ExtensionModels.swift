@@ -9,7 +9,8 @@ import Foundation
 struct ExtensionOptionDef: Codable, Equatable {
     var type: String          // "string" | "number" | "boolean" | "select"
     var description: String
-    var values: [String]?
+    // Select values retain their JSON type; the interface writes the selected value, not its label.
+    var values: [AnyCodableValue]?
     var `default`: AnyCodableValue
 }
 

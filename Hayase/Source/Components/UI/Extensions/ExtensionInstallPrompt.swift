@@ -41,6 +41,87 @@ enum ExtensionInstallPrompt {
     }
 }
 
+/// The preview source dialog is `!w-auto max-w-[95%]`, unlike the installed source viewer's 80vw/70vh.
+private final class ExtensionSourcePreviewDialog: SettingsDialogViewController {
+    private let titleMeasure: UILabel
+    private var naturalWidth: CGFloat
+    private var naturalBodyHeight: CGFloat = 80
+    private var bodyHeight: NSLayoutConstraint?
+
+    override init(title: String, maximumWidth: CGFloat = CGFloat.greatestFiniteMagnitude,
+                  contentInset: CGFloat = 24, heightFraction: CGFloat = 0.95) {
+        titleMeasure = SettingsTypography.label(title, size: 18, lineHeight: 18, weight: .bold)
+        naturalWidth = titleMeasure.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude,
+                                                       height: CGFloat.greatestFiniteMagnitude)).width
+        super.init(title: title, maximumWidth: maximumWidth, contentInset: contentInset, heightFraction: heightFraction)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    func configureSourceView(_ text: UITextView, source: String, font: UIFont, lineHeight: CGFloat, padding: CGFloat) {
+        let lines = source.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
+        let sourceWidth = lines.reduce(CGFloat.zero) { max($0, ($1 as NSString).size(withAttributes: [.font: font]).width) }
+        naturalWidth = max(naturalWidth, sourceWidth + padding * 2)
+        naturalBodyHeight = max(lineHeight, CGFloat(lines.count) * lineHeight) + padding * 2
+        // `w-max whitespace-pre-wrap`: long lines scroll horizontally, rather than wrapping to panel width.
+        text.textContainer.widthTracksTextView = false
+        text.textContainer.size = CGSize(width: max(1, ceil(sourceWidth) + 1), height: CGFloat.greatestFiniteMagnitude)
+        bodyHeight = text.heightAnchor.constraint(equalToConstant: naturalBodyHeight)
+        bodyHeight?.isActive = true
+        view.setNeedsLayout()
+    }
+
+    override func viewDidLayoutSubviews() {
+        preferredPanelWidth = min(view.bounds.width * 0.95, ceil(naturalWidth) + 50) // p-6 + border
+        let titleHeight = titleMeasure.sizeThatFits(CGSize(width: max(1, (preferredPanelWidth ?? 50) - 50),
+                                                          height: CGFloat.greatestFiniteMagnitude)).height
+        // Fixed title, Close (36), two gap-4 spaces, and p-6 + border leave the code's scroll area.
+        bodyHeight?.constant = min(naturalBodyHeight, max(1, view.bounds.height * 0.95 - titleHeight - 118))
+        super.viewDidLayoutSubviews()
+    }
+}
+
+/// `<div class='py-8'><div class='animate-spin size-4 border-2 ... border-t-transparent' /></div>`.
+private final class ExtensionSourcePreviewSpinner: UIView {
+    private let ring = CAShapeLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        heightAnchor.constraint(equalToConstant: 80).isActive = true
+        ring.bounds = CGRect(x: 0, y: 0, width: 16, height: 16)
+        ring.path = UIBezierPath(arcCenter: CGPoint(x: 8, y: 8), radius: 7,
+            startAngle: -.pi / 4, endAngle: 5 * .pi / 4, clockwise: true).cgPath
+        ring.fillColor = nil
+        ring.strokeColor = UIColor.HayaseTheme.mutedForeground.cgColor
+        ring.lineWidth = 2
+        layer.addSublayer(ring)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        ring.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        CATransaction.commit()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        ring.removeAnimation(forKey: "spin")
+        guard window != nil else { return }
+        let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+        spin.fromValue = 0
+        spin.toValue = Double.pi * 2
+        spin.duration = 1
+        spin.repeatCount = .infinity
+        spin.timingFunction = CAMediaTimingFunction(name: .linear)
+        ring.add(spin, forKey: "spin")
+    }
+}
+
 // MARK: - ExtensionInstallPromptViewController
 
 final class ExtensionInstallPromptViewController: SettingsDialogViewController {
@@ -83,9 +164,7 @@ final class ExtensionInstallPromptViewController: SettingsDialogViewController {
         description.numberOfLines = 1
         description.attributedText = CSSText.string(url, font: .nunito(ofSize: 14, weight: .regular),
                                                     color: UIColor.HayaseTheme.mutedForeground, lineHeight: 20)   // `truncate`
-        let header = UIStackView(arrangedSubviews: [title, description])
-        header.axis = .vertical
-        header.spacing = 6
+        let header = SettingsDialogHeader(title: title, description: description)
         content.addArrangedSubview(header)
 
         body.axis = .vertical
@@ -219,9 +298,7 @@ final class ExtensionInstallPromptViewController: SettingsDialogViewController {
 
     /// `<Button variant='secondary'>`
     private func secondaryButton(_ title: String, action: @escaping () -> Void) -> UIButton {
-        let button = SettingsTypography.button(title)
-        button.setTitleColor(UIColor.HayaseTheme.secondaryForeground, for: .normal)
-        button.backgroundColor = UIColor.HayaseTheme.secondary
+        let button = SettingsTypography.button(title, secondary: true)
         button.addAction(UIAction { _ in action() }, for: .touchUpInside)
         return button
     }
@@ -230,14 +307,10 @@ final class ExtensionInstallPromptViewController: SettingsDialogViewController {
 
     /// `{config.name} Source Code`: the code of an extension that is not installed yet.
     private func showSource(_ config: ExtensionConfig) {
-        let dialog = SettingsDialogViewController(title: "\(config.name) Source Code", maximumWidth: 1000)
-        let spinner = UIActivityIndicatorView(style: .medium)
-        spinner.color = UIColor.HayaseTheme.mutedForeground
-        spinner.startAnimating()
+        let dialog = ExtensionSourcePreviewDialog(title: "\(config.name) Source Code")
+        let spinner = ExtensionSourcePreviewSpinner(frame: .zero)
         dialog.content.addArrangedSubview(spinner)
-        let close = SettingsTypography.button("Close")
-        close.setTitleColor(UIColor.HayaseTheme.secondaryForeground, for: .normal)
-        close.backgroundColor = UIColor.HayaseTheme.secondary
+        let close = SettingsTypography.button("Close", secondary: true)
         close.addAction(UIAction { [weak dialog] _ in dialog?.close() }, for: .touchUpInside)
         dialog.content.addArrangedSubview(close)
         present(dialog, animated: false)
@@ -249,17 +322,23 @@ final class ExtensionInstallPromptViewController: SettingsDialogViewController {
             let text = UITextView()
             text.isEditable = false
             text.backgroundColor = .clear
+            text.textContainer.lineFragmentPadding = 0
+            text.setContentHuggingPriority(.defaultLow, for: .vertical)
+            text.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
             if let code, !code.isEmpty {
-                text.textColor = UIColor.HayaseTheme.foreground
-                text.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
-                text.text = code
+                let font = UIFont.monospacedSystemFont(ofSize: 16, weight: .regular)
+                text.textContainerInset = .zero
+                text.attributedText = CSSText.string(code, font: font, color: UIColor.HayaseTheme.foreground,
+                    lineHeight: 24, lineBreak: .byCharWrapping)
+                dialog.configureSourceView(text, source: code, font: font, lineHeight: 24, padding: 0)
             } else {
                 // `Failed to load source code.`
-                text.textColor = UIColor.HayaseTheme.mutedForeground
-                text.font = .nunito(ofSize: 14, weight: .regular)
-                text.text = "Failed to load source code."
+                let font = UIFont.nunito(ofSize: 14)
+                text.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+                text.attributedText = CSSText.string("Failed to load source code.", font: font,
+                    color: UIColor.HayaseTheme.mutedForeground, lineHeight: 20)
+                dialog.configureSourceView(text, source: "Failed to load source code.", font: font, lineHeight: 20, padding: 16)
             }
-            text.heightAnchor.constraint(equalToConstant: max(200, dialog.view.bounds.height * 0.55)).isActive = true
             dialog.content.insertArrangedSubview(text, at: dialog.content.arrangedSubviews.count - 1)
         }
     }

@@ -2,6 +2,7 @@
 // `preview` is the card of ExtensionInstallPrompt.svelte: the same card with only the source button in its
 // `actions` slot, and with no status dot (the `leading` slot is empty there) of an extension that is not installed.
 import UIKit
+import CoreFoundation
 
 final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate {
     var onOptions: (() -> Void)?
@@ -31,6 +32,8 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
         dot.widthAnchor.constraint(equalToConstant: 8.8).isActive = true
         dot.heightAnchor.constraint(equalToConstant: 8.8).isActive = true
         dot.isHidden = preview
+        dot.isUserInteractionEnabled = true
+        dot.attachTooltip("This extension is currently being tested for online status.", maximumWidth: 208)
         let name = SettingsTypography.label(config.name, size: 16, lineHeight: 24, weight: .bold)
         name.numberOfLines = 1
         name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -67,10 +70,10 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
             let flags = languages.filter { TwemojiFlagArtwork.emoji(for: $0) != nil }
             if !flags.isEmpty { items.append(.flags(flags)) }
         }
-        badges.setItems(items, fontSize: 14, rowSpacing: 8,
+        badges.setItems(items, fontSize: 14, rowSpacing: 8, lineHeight: 19.25,
                        background: UIColor.HayaseTheme.accent, foreground: UIColor.HayaseTheme.foreground)
         left.addArrangedSubview(badges)
-        let source = iconButton("code", label: "Source Code")
+        let source = iconButton("code-xml", label: "Source Code")
         let options = iconButton("bolt", label: "Extension Settings")
         source.addAction(UIAction { [weak self] _ in self?.onSource?() }, for: .touchUpInside)
         options.addAction(UIAction { [weak self] _ in self?.onOptions?() }, for: .touchUpInside)
@@ -89,7 +92,7 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
         actions.isLayoutMarginsRelativeArrangement = true
         actions.layoutMargins.bottom = 6
         // flex-1/min-w-0 belongs to the text column, not the action column.
-        let actionsWidth = actions.widthAnchor.constraint(equalToConstant: 52)
+        let actionsWidth = actions.widthAnchor.constraint(equalToConstant: preview ? 25.6 : 51.2)
         actionsWidth.priority = UILayoutPriority(999)
         actionsWidth.isActive = true
         actions.isHidden = !preview && ExtensionService.shared.options[config.id] == nil
@@ -113,14 +116,27 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
         guard !preview else { return }
         statusTask = Task { @MainActor [weak dot] in
             do {
-                _ = try await ExtensionService.shared.workers[config.id]?.test()
+                let result = try await ExtensionService.shared.workers[config.id]?.testResult()
                 guard !Task.isCancelled else { return }
                 dot?.backgroundColor = UIColor(red: 123 / 255, green: 213 / 255, blue: 85 / 255, alpha: 1)
-                dot?.accessibilityLabel = "Extension online"
+                let text: String
+                if let number = result as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID(), !number.boolValue {
+                    text = "This extension is offline and unreachable, but the extension expects this."
+                } else if result == nil || result is NSNull ||
+                            (result as? NSNumber).map({ CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue }) == true {
+                    text = "This extension is online and reachable."
+                } else if let number = result as? NSNumber {
+                    text = AnyCodableValue.number(number.doubleValue).stringValue
+                } else {
+                    text = result.map { String(describing: $0) } ?? ""
+                }
+                dot?.accessibilityLabel = text
+                dot?.attachTooltip(text, maximumWidth: 208)
             } catch {
                 guard !Task.isCancelled else { return }
                 dot?.backgroundColor = UIColor(red: 200 / 255, green: 80 / 255, blue: 80 / 255, alpha: 1)
                 dot?.accessibilityLabel = error.localizedDescription
+                dot?.attachTooltip(error.localizedDescription, maximumWidth: 208)
             }
         }
     }
@@ -137,12 +153,15 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
     }
 
     private func iconButton(_ icon: String, label: String) -> UIButton {
-        let button = GhostButton(frame: .zero)
-        button.setImage(UIImage.hayaseIcon(icon), for: .normal)
+        let button = SelectButton(frame: .zero)
+        button.applyGhostVariant()
+        button.dimsWhenDisabled = true
+        button.setLayeredIcon(icon == "bolt" ? .bolt : .code, size: 18)
         button.tintColor = UIColor.HayaseTheme.foreground
         button.accessibilityLabel = label
-        button.widthAnchor.constraint(equalToConstant: 26).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        button.layer.cornerRadius = 4
+        button.widthAnchor.constraint(equalToConstant: 25.6).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 25.6).isActive = true
         return button
     }
 
