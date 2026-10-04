@@ -590,8 +590,15 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     private var playbackRateBeforeFastForward = 1.0
     private var wasPausedBeforeFastForward = false
     private var wasPausedBeforeScrub: Bool?
-    private var currentSkippableChapter: SkippableChapter?
-    private var autoSkipStartedFor: Set<String> = []
+    /// chapters.ts: the chapters the player works with (whole, with what is skippable marked), the ones the
+    /// file has, and the loading of them
+    private var chapterModel: [Chapter] = []
+    private var chaptersHandler: Chapters?
+    private var fileChapters: [MPVChapter] = []
+    private var chaptersLoadedDuration: Double = 0
+    private var chaptersTask: Task<Void, Never>?
+    /// `currentSkippable`
+    private var currentSkippableChapter: Chapter?
     private var visibilityPauseWasPlaying = false
     private var autoPiPRequested = false
     private var appVisibilityObservers: [NSObjectProtocol] = []
@@ -636,12 +643,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     /// position callback. Saves every 5 seconds during active playback.
     private var lastProgressSaveTime: Date = .distantPast
     private var isFullscreenPresentation = false
-
-    private struct SkippableChapter: Equatable {
-        let title: String
-        let end: Double
-        let skipType: String
-    }
 
     /// True while the player is being minimized to in-app PiP. Prevents
     /// viewWillDisappear from tearing down the streaming pipeline.
@@ -938,12 +939,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
             if let options = presentedViewController as? PlayerOptionsController { options.openRootMenu(named: "Cast") }
             else { showOptionsSheet(openMenu: "Cast") }
         case "+90":
-            let target: Double
-            if let chapter = chapterWindow(at: currentTime) {
-                target = skippableChapter(at: currentTime) == nil && chapter.end - chapter.start > 100
-                    ? currentTime + 85 : chapter.end + 0.5
-            } else { target = currentTime < 10 ? 90 : duration - currentTime < 90 ? duration : currentTime + 85 }
-            surface.mpv.seek(to: min(duration, target))
+            skipCurrentChapter()
             showPlayerAnimation(icon: "fast-forward")
         case "list": toggleTechnicalStats()
         default: break
@@ -1761,8 +1757,13 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         isEOFTriggered = false
         pendingRestoreTime = nil
         chapters.removeAll()
+        chapterModel = []
+        fileChapters = []
+        chaptersLoadedDuration = 0
+        chaptersTask?.cancel()
+        // `new Chapters(mediaInfo)`: the themes of the anime are asked for as the player is made
+        chaptersHandler = Chapters(mediaID: currentMediaID, episode: episodeNumber)
         currentSkippableChapter = nil
-        autoSkipStartedFor.removeAll()
         skipChapterButton.stopProgress()
         updateChapterMarkers()
         updateBuffering(true)
@@ -2430,47 +2431,47 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         (chapterWindow(at: time)?.title ?? "").capitalized
     }
 
-    private func skippableChapter(at time: Double) -> SkippableChapter? {
-        guard let chapter = chapterWindow(at: time),
-              let skipType = skipType(for: chapter.title) else { return nil }
-        return SkippableChapter(title: chapter.title, end: chapter.end, skipType: skipType)
-    }
-
-    private func skipType(for chapterText: String) -> String? {
-        let patterns: [(String, String)] = [
-            ("Opening", "^op$|opening$|^ncop|^opening "),
-            ("Ending", "^ed$|ending$|^nced|^ending "),
-            ("Intro", "^intro$"),
-            ("Outro", "^outro$"),
-            ("Credits", "^credits$"),
-            ("Preview", "^preview$"),
-            ("Recap", "recap"),
-        ]
-        let range = NSRange(chapterText.startIndex..<chapterText.endIndex, in: chapterText)
-        for (skipType, pattern) in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .anchorsMatchLines]) else {
-                continue
-            }
-            if regex.firstMatch(in: chapterText, options: [], range: range) != nil {
-                return skipType
-            }
+    /// `loadChapters`: the chapters of the file (or, when it has none to read, AniSkip's) made whole, with
+    /// what is skippable marked. They replace the file's own once they are there.
+    private func loadChapters() {
+        guard duration > 0, let handler = chaptersHandler else { return }
+        chaptersLoadedDuration = duration
+        let duration = self.duration
+        // the chapters of the file know where they start; one ends where the next starts
+        let sorted = fileChapters.sorted { $0.time < $1.time }
+        let raw = sorted.enumerated().map { index, chapter in
+            RawChapter(start: chapter.time * 1000,
+                       end: (index + 1 < sorted.count ? sorted[index + 1].time : duration) * 1000,
+                       text: chapter.title)
         }
-        return nil
+        let malID = videoService?.media?.malId ?? Router.shared.cachedAnimeItem(for: currentMediaID)?.malId
+        let fileExtension = ((videoEntity?.videoName ?? "") as NSString).pathExtension.lowercased()
+        chaptersTask?.cancel()
+        chaptersTask = Task { @MainActor [weak self] in
+            let loaded = await handler.loadChapters(fileChapters: raw, malID: malID,
+                                                    readsChaptersOfContainer: ["mkv", "webm"].contains(fileExtension),
+                                                    duration: duration)
+            guard let self, !Task.isCancelled, self.chaptersHandler === handler, !loaded.isEmpty else { return }
+            self.chapterModel = loaded
+            self.chapters = loaded.enumerated().map { MPVChapter(index: $0.offset, title: $0.element.text, time: $0.element.start) }
+            self.updateChapterMarkers()
+            self.updateSkipChapterButton()
+        }
     }
 
+    /// `checkSkippableChapters`
     private func updateSkipChapterButton() {
-        let next = skippableChapter(at: currentTime)
+        guard let current = Chapters.find(currentTime, in: chapterModel) else { return }
+        let next = current.skippable ? current : nil
         guard next != currentSkippableChapter else { return }
+        let wasAutoskippable = currentSkippableChapter?.autoskippable ?? false
         currentSkippableChapter = next
         if let next {
-            skipChapterButton.setTitle("Skip \(next.skipType)")
+            skipChapterButton.setTitle("Skip \(next.skiptype ?? "")")
             skipChapterButton.stopProgress()
-            let eligibleType = ["Opening", "Intro", "Ending", "Outro", "Credits"].contains(next.skipType)
-            let eligibleLength = next.end - (chapterWindow(at: currentTime)?.start ?? next.end)
             let w2gAllowsSkip = W2GLobby.shared.client.map { $0.peers.count > 1 } ?? true
-            if Settings.playerSkip, episodeNumber != 1, eligibleType,
-               (60.0...120.0).contains(eligibleLength), w2gAllowsSkip,
-               autoSkipStartedFor.insert(next.skipType).inserted {
+            // an opening or ending that is not on its first episode skips by itself, after the button has run
+            if Settings.playerSkip, next.autoskippable, !wasAutoskippable, w2gAllowsSkip {
                 skipChapterButton.startProgress(duration: 3)
             }
         } else {
@@ -2479,10 +2480,26 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         updateInterfaceOverlayVisibility(animated: true)
     }
 
+    /// `skip()`: past the chapter, 85 seconds on in a long one that is not skippable, or where 90 seconds /
+    /// the end of the episode is when there is no chapter.
     private func skipCurrentChapter() {
-        guard let current = currentSkippableChapter ?? skippableChapter(at: currentTime),
-              duration > 0 else { return }
-        let targetTime = min(duration, current.end + 0.5)
+        guard duration > 0 else { return }
+        let target: Double
+        if let current = Chapters.find(currentTime, in: chapterModel) {
+            if !current.skippable && current.length > 100 {
+                target = currentTime + 85
+            } else {
+                target = current.end + 0.5
+                currentSkippableChapter = nil
+            }
+        } else if currentTime < 10 {
+            target = 90
+        } else if duration - currentTime < 90 {
+            target = duration
+        } else {
+            target = currentTime + 85
+        }
+        let targetTime = min(duration, target)
         surface.mpv.seek(to: targetTime)
         lastSeekTime = Date()
         isSeeking = true
@@ -3197,6 +3214,8 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
 
     func renderer(_ renderer: MPVWrapper, didUpdatePosition position: Double, duration: Double, cacheSeconds: Double) {
         self.duration = duration
+        // `$: chaptersHandler.loadChapters(safeduration)`: again whenever the length is another
+        if duration > 0, chaptersLoadedDuration != duration { loadChapters() }
         if !isBuffering, !isSeeking, duration > 0, position > 0 { thumbnailer.rememberFrame(at: position, from: renderer) }
         seekBar.buffer = duration > 0 ? CGFloat(min(1, max(0, (position + cacheSeconds) / duration))) : 0
         if !isSeeking {
@@ -3437,9 +3456,9 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
     func renderer(_ renderer: MPVWrapper, didSelectAudioOutput audioOutput: String) { }
 
     func renderer(_ renderer: MPVWrapper, didBecomeChaptersReady chapters: [MPVChapter]) {
-        self.chapters = chapters
-        updateChapterMarkers()
-        updateSkipChapterButton()
+        fileChapters = chapters
+        chaptersLoadedDuration = 0
+        loadChapters()
     }
 
     // MARK: - Mini-player support (Hayase wrapper.svelte)
