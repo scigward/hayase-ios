@@ -37,6 +37,28 @@ The ones with the biggest effect on a user:
 - `SB-01` the screen is allowed to lock while a video plays.
 - `MF-06`/`MF-07` extensions need the network at every launch, and downloaded episodes do not appear in the torrent search.
 
+## Status of the missing features (after the work of 2026-10-04)
+
+The entries of section 1 below stay as they were written. This is what became of them. Before each one was
+done it was checked against what the interface enables on iOS (`SUPPORTS.isIOS` / `isMobile`).
+
+| Entry | State |
+| --- | --- |
+| MF-01 links | Done: `hayase://anime/<id>`, `w2g/<code>`, `schedule`, `debug`, `extensions/install/<url>` (or `?url=`) and the same paths on hayase.watch / hayase.app are handled (`AppDelegate`, `Modules/Navigation/DeepLink.swift`); a link that arrives before the app has its pages waits for them. Universal links are handled when the associated-domains entitlement is there; it is not added, because a build that is signed again by whoever installs it cannot carry it. |
+| MF-02 install prompt | Done: `Components/UI/Extensions/ExtensionInstallPrompt.swift`, reached by the links above. The dialog scrolls as a whole where the interface scrolls only its list. |
+| MF-03 lock screen | Done: `Components/UI/Player/MediaSession.swift` (Now Playing and remote commands). |
+| MF-04 sidecar subtitles | Done: `Components/UI/Player/Subtitles.swift` (subtitle files and fonts of the torrent). |
+| MF-05 subtitle extensions | Done: `ExtensionService.subtitlesQuery`, loaded by `Subtitles`. |
+| MF-06 extension code | Done: the code is kept in `Application Support/Extensions` and started from there; when it does not load that way (or none is saved yet) the extension is imported from its address as before. `update()` now waits for the first load, as `storage.update` does (this also settles `SB-06`). |
+| MF-07 local results | Done: the library entries of the media and episode are results of the extension `local`. |
+| MF-08 identifiers | Done for text (magnet, 40-digit hash, `.torrent` address) and for a `.torrent` file dropped on the dialog. A `.torrent` file pasted from the clipboard is not handled: a text field takes no file. |
+| MF-09 in-player chat | Not applicable on iOS: the Messages button is in the bottom control row, which `player.svelte` does not render on iOS (`!SUPPORTS.isIOS`) or in the minimal UI. |
+| MF-10 AniSkip | Done: `Components/UI/Player/Chapters.swift` mirrors `chapters.ts` (whole chapters, first-occurrence auto-skip from AnimeThemes, the patterns, `skip()`). AniSkip is asked when the file has no chapters and is not Matroska, the container whose chapters the interface reads itself. |
+| MF-11 themes | Not done: kept out of scope as decided earlier. |
+| MF-12 debug ribbon | Done: `Components/UI/Menubar/Menubar.swift`. |
+| MF-13 licence and error pages | Done: the licence is a page (`Route.license`, text bundled in `Resources/License/LICENSE.txt`: the licence of the interface and of the third-party code in this app) and a failed anime or thread load shows the error page. `Route.debug` was added with it, so `debug` is a route too. |
+| MF-14 game controller | Not done: the interface sends key presses to the element in focus, and the app has no focus navigation for a controller to drive. |
+
 ---
 
 ## 1. Missing features
