@@ -171,7 +171,7 @@ done it was checked against what the interface enables on iOS (`SUPPORTS.isIOS` 
 - `ExtensionService.swift` (header) claims extension code is stored under Application Support (see `MF-06`).
 - Source headers still say `FinalProject` / `Charles Augustine` (`AppDelegate.swift`) and `NyaiS` (`SearchViewController.swift`); legacy names remain in `nyais_watchProgress`, `nyais_miniPlayerSessionState`, `com.nyais.fillerCache` and the CoreData attribute `torrentNyaaId`.
 
-### MM-14 — Watch Together opens a "Create or join" screen the interface does not have · Medium · Confirmed
+### MM-14 — Watch Together opens a "Create or join" screen the interface does not have · Medium · Confirmed, kept on purpose
 - Interface `routes/app/w2g/+page.ts`: opening Watch Together creates a lobby at once (`new W2GClient(generateRandomHexCode(8), true, last media)`) and redirects to `/app/w2g/<code>`; joining is done by opening a link to a code.
 - Swift `W2GViewController.setupLandingUI`: shows a landing screen (title, "Create Lobby" button, "or join an existing lobby", a code field, "Join Lobby") until a lobby exists. It is a stand-in for the missing deep links (`MF-01`, `MM-12`), but it adds a screen, its texts and fixed colours (a blue button, `UIColor(white: 0.1)` fields) that are not in the interface.
 
@@ -411,6 +411,7 @@ Not run on a device; the hazards the document lists as "needs a device" still st
 
 ### Documented deviations that stay
 Listed so the next audit does not report them again:
+- The Watch Together landing screen (`MM-14`): kept on the owner's decision, with a comment in `W2GViewController.swift`.
 - Plain `http` extension URLs are refused (`ExtensionService.swift` header).
 - The IRC client is a reduced port: minimal CAP, no SASL, no client-side ping, no ISUPPORT parsing, no case folding; the kick handler removes the kicker and the guest nick is `undefined_Guest-…`, both on purpose, as upstream does (`IRCClient.swift` header).
 - The 1080p subtitle render height default (`Settings.Defaults.subtitleRenderHeight`) against the interface's 720 on mobile.

@@ -48,6 +48,9 @@ final class W2GViewController: UIViewController {
     private var lobbyObserver: NSObjectProtocol?
 
     // MARK: - Landing UI Elements (shown when no lobby is active)
+    //
+    // Kept on purpose, and not in the interface: `w2g/+page.ts` makes a lobby the moment Watch Together opens, and
+    // a lobby is joined by opening its link. The app also offers this screen (create, or join with a code).
 
     private let landingScrollView = UIScrollView()
     private let landingStack = UIStackView()
