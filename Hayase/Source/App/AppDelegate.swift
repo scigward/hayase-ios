@@ -84,6 +84,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     /// been done, in place of the splash and with the crossfade of a view transition.
     func finishSplash() {
         guard let window, window.rootViewController is SplashViewController else { return }
+        // menubar.svelte: the "Debug Mode!" ribbon is part of the root layout, so the setup has it too
+        DebugRibbonWindow.installIfNeeded(in: window.windowScene)
         let finished = SetupFlow.isFinished
         splashTransition.perform(in: window) { [self] in
             if finished { installSidebarShell() } else { installSetup() }
