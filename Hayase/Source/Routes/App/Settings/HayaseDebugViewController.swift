@@ -140,6 +140,11 @@ final class HayaseDebugViewController: UIViewController {
     }
 
     @objc private func close() {
+        // the page is a route: leaving it is going back
+        if Router.shared.currentRoute == .debug {
+            Router.shared.back()
+            return
+        }
         guard let navigationController else { return }
         Self.routeTransition.perform(in: navigationController.view) {
             navigationController.popViewController(animated: false)

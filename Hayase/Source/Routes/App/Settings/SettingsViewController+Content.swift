@@ -108,12 +108,8 @@ extension SettingsViewController {
 
         case .button(let title):
             let button = SettingsTypography.button(title)
-            button.addAction(UIAction { [weak self] _ in
-                guard let self, let navigation = self.navigationController else { return }
-                self.localRouteTransition.perform(in: navigation.view) {
-                    navigation.pushViewController(HayaseDebugViewController(), animated: false)
-                }
-            }, for: .touchUpInside)
+            // `<Button href='/#/app/debug'>`
+            button.addAction(UIAction { _ in Router.shared.navigate(.debug) }, for: .touchUpInside)
             return card(row, control: button)
 
         }

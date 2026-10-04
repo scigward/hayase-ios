@@ -4,10 +4,11 @@
 // WKWebView instead of Web Workers (not available to Swift code on iOS).
 //
 // Loading approach:
-//   <script type="module"> in loadHTMLString with the direct esm.sh HTTPS URL.
-//   This is the most reliable method in WKWebView — static module imports in
-//   <script type="module"> are fully supported, and esm.sh sets CORS Allow-Origin: *.
-//   No blob URLs, no evaluateJavaScript code injection, no file:// pages.
+//   <script type="module"> in loadHTMLString, which defines `__loadExtension`; the native side calls it once
+//   the page has loaded. The code the interface keeps (storage.ts `CodeManager`, which hands the saved code to its
+//   worker as a Blob URL) is imported the same way; when there is none, or it does not load, the extension is
+//   imported from its esm.sh HTTPS URL, which is the most reliable method in WKWebView — static module
+//   imports in <script type="module"> are fully supported, and esm.sh sets CORS Allow-Origin: *.
 
 import Foundation
 import WebKit
@@ -41,6 +42,8 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
     private var webView: WKWebView?
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var loadTimeoutWork: DispatchWorkItem?
+    /// `__loadExtension(code, url)` as JavaScript, for when the page has loaded
+    private var pendingBootstrap: String?
     private var pending: [String: (Result<Any, Error>) -> Void] = [:]
     /// Stores per-call timeout DispatchWorkItems so they can be cancelled when
     /// the result arrives (prevents 30s leaking work items after every call).
@@ -63,7 +66,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
     ///   - esm.sh serves Access-Control-Allow-Origin: * so cross-origin imports work
     ///   - No blob URLs (unreliable in WKWebView), no evaluateJavaScript injection
     ///   - loadHTMLString works without the WKWebView being in the view hierarchy
-    func load(extensionURL: URL) async throws {
+    func load(extensionURL: URL, code: String? = nil) async throws {
         let handler = BridgeMessageHandler(worker: self)
         let userContent = WKUserContentController()
         userContent.add(handler, name: "extBridge")
@@ -76,11 +79,8 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         wv.isUserInteractionEnabled = false
         self.webView = wv
 
-        // Escape URL for safe embedding in JS string literal.
-        // esm.sh URLs are always clean HTTPS URLs, but be defensive.
-        let jsURL = extensionURL.absoluteString
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
+        // the saved code (or null) and the URL, as JavaScript literals
+        pendingBootstrap = "(function(){ window.__loadExtension(\(Self.javaScriptLiteral(code)), \(Self.javaScriptLiteral(extensionURL.absoluteString))); })();"
 
         // Bootstrap HTML:
         //   1. window.fetch proxy — routes ALL extension fetch() calls through Swift URLSession.
@@ -229,7 +229,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         </script>
         <script type="module">
         (function() {
-          import('\(jsURL)').then(function(mod) {
+          function ready(mod) {
             window.__ext = mod.default;
             window.__call = async function(callId, method, query, options) {
               try {
@@ -245,11 +245,28 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
               }
             };
             window.webkit.messageHandlers.extBridge.postMessage(JSON.stringify({type:'ready'}));
-          }).catch(function(e) {
+          }
+          function fail(e) {
             var msg = (e && e.message) ? e.message : String(e);
             window.webkit.messageHandlers.extBridge.postMessage(
                 JSON.stringify({type:'error',error:msg}));
-          });
+          }
+          // worker.ts `load`: the saved code is imported from a Blob URL. A code that does not load that way
+          // (or none saved) is imported from the address it comes from.
+          window.__loadExtension = function(code, url) {
+            if (code === null) {
+              import(url).then(ready).catch(fail);
+              return;
+            }
+            var blobURL = URL.createObjectURL(new Blob([code], {type: 'application/javascript'}));
+            import(blobURL).then(function(mod) {
+              URL.revokeObjectURL(blobURL);
+              ready(mod);
+            }).catch(function() {
+              URL.revokeObjectURL(blobURL);
+              import(url).then(ready).catch(fail);
+            });
+          };
         })();
         </script>
         </head><body></body></html>
@@ -276,9 +293,19 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // The <script type="module"> runs automatically as part of page load.
-        // 'ready' or 'error' arrives via the extBridge message handler.
-        // No code injection needed here.
+        // The <script type="module"> has defined `__loadExtension` by now; 'ready' or 'error' arrives via the
+        // extBridge message handler once the extension has been imported.
+        guard let bootstrap = pendingBootstrap else { return }
+        pendingBootstrap = nil
+        webView.evaluateJavaScript(bootstrap, completionHandler: nil)
+    }
+
+    /// A string as a JavaScript literal (`null` for none).
+    private static func javaScriptLiteral(_ value: String?) -> String {
+        guard let value, let data = try? JSONEncoder().encode(value), let literal = String(data: data, encoding: .utf8) else {
+            return "null"
+        }
+        return literal
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

@@ -10,7 +10,6 @@ final class SettingsViewController: UIViewController {
     let settingsView = SettingsLayoutView(frame: .zero)
     var settingsRoute: Route.SettingsRoute = .root
     var selectedTab: SettingsTab = .player
-    let localRouteTransition = HayaseRouteTransition()
     var changelogEntries: [HayaseChangelogEntry]?
     var changelogError: String?
     var pendingScale: Double?

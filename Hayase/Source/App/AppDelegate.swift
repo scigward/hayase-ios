@@ -70,6 +70,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             window.makeKeyAndVisible()
             HayaseInterfaceScale.apply()
         }
+        DispatchQueue.main.async { DeepLink.shellDidAppear() }
     }
 
     /// `routes/+page.svelte`: the app opens on the splash. The tab controller the storyboard made is kept
@@ -93,7 +94,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         if finished {
             // Hayase: server.active auto-mounts the player on app reload
-            DispatchQueue.main.async { MiniPlayerManager.shared.restoreSessionIfNeeded() }
+            DispatchQueue.main.async {
+                MiniPlayerManager.shared.restoreSessionIfNeeded()
+                DeepLink.shellDidAppear()
+            }
         }
     }
 
@@ -130,6 +134,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         MiniPlayerManager.shared.close()
         rebuildInterfaceAfterSettingsReset()
         DispatchQueue.main.async { Router.shared.replace(route) }
+    }
+
+    // MARK: - Links
+
+    /// `hayase://` links, which the app registers (Info.plist `CFBundleURLTypes`)
+    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        guard DeepLink.target(for: url) != nil else { return false }
+        DeepLink.open(url)
+        return true
+    }
+
+    /// Links of hayase.watch, where the app has them (associated domains)
+    func application(_ application: UIApplication, continue userActivity: NSUserActivity,
+                     restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
+        guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+              let url = userActivity.webpageURL, DeepLink.target(for: url) != nil else { return false }
+        DeepLink.open(url)
+        return true
     }
 
     // MARK: - Background / Termination

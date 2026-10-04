@@ -19,6 +19,12 @@ enum AppErrorToast {
         UIAccessibility.post(notification: .announcement, argument: title + "\n" + message)
     }
 
+    /// `toast.success(title)`: the default duration of svelte-sonner is 4 seconds.
+    static func success(_ title: String, duration: TimeInterval = 4) {
+        guard let window = (UIApplication.shared.delegate as? AppDelegate)?.window else { return }
+        overlay(in: window).show(message: "", title: title, duration: duration, kind: .success)
+    }
+
     /// A chat message from `MessageToast.svelte`, shown while the chat page is not.
     static func show(chatMessage: ChatMessageContent) {
         guard let window = (UIApplication.shared.delegate as? AppDelegate)?.window else { return }

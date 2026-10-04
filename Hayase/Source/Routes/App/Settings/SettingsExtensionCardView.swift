@@ -1,4 +1,6 @@
 // Mirrors: src/lib/components/ui/extensions/ExtensionCard.svelte; src/lib/components/ui/extensions/ExtensionSettings.svelte
+// `preview` is the card of ExtensionInstallPrompt.svelte: the same card with only the source button in its
+// `actions` slot, and with no status dot (the `leading` slot is empty there) of an extension that is not installed.
 import UIKit
 
 final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate {
@@ -11,9 +13,9 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
     private var imageTask: URLSessionDataTask?
     private var statusTask: Task<Void, Never>?
 
-    init(config: ExtensionConfig) {
+    init(config: ExtensionConfig, preview: Bool = false) {
         super.init(frame: .zero)
-        addInteraction(UIContextMenuInteraction(delegate: self))
+        if !preview { addInteraction(UIContextMenuInteraction(delegate: self)) }
         backgroundColor = UIColor.HayaseTheme.muted
         layer.cornerRadius = 6
         let icon = UIImageView()
@@ -28,6 +30,7 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
         dot.layer.cornerRadius = 4.4
         dot.widthAnchor.constraint(equalToConstant: 8.8).isActive = true
         dot.heightAnchor.constraint(equalToConstant: 8.8).isActive = true
+        dot.isHidden = preview
         let name = SettingsTypography.label(config.name, size: 16, lineHeight: 24, weight: .bold)
         name.numberOfLines = 1
         name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -73,14 +76,14 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
         options.addAction(UIAction { [weak self] _ in self?.onOptions?() }, for: .touchUpInside)
         options.isEnabled = !(config.options?.isEmpty ?? true)
         options.alpha = options.isEnabled ? 1 : 0.5
-        let buttons = UIStackView(arrangedSubviews: [source, options])
+        let buttons = UIStackView(arrangedSubviews: preview ? [source] : [source, options])
         let toggle = HayaseSwitch(hideState: true)
         toggle.accessibilityLabel = "Enable \(config.name)"
         toggle.setOn(ExtensionService.shared.options[config.id]?.enabled ?? false, animated: false)
         toggle.addAction(UIAction { [weak toggle] _ in
             ExtensionService.shared.setEnabled(toggle?.isOn ?? false, for: config.id)
         }, for: .valueChanged)
-        let actions = UIStackView(arrangedSubviews: [buttons, UIView(), toggle])
+        let actions = UIStackView(arrangedSubviews: preview ? [buttons] : [buttons, UIView(), toggle])
         actions.axis = .vertical
         actions.alignment = .trailing
         actions.isLayoutMarginsRelativeArrangement = true
@@ -89,7 +92,7 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
         let actionsWidth = actions.widthAnchor.constraint(equalToConstant: 52)
         actionsWidth.priority = UILayoutPriority(999)
         actionsWidth.isActive = true
-        actions.isHidden = ExtensionService.shared.options[config.id] == nil
+        actions.isHidden = !preview && ExtensionService.shared.options[config.id] == nil
         let row = UIStackView(arrangedSubviews: [left, actions])
         row.spacing = 12
         row.translatesAutoresizingMaskIntoConstraints = false
@@ -107,6 +110,7 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
             }
             imageTask?.resume()
         }
+        guard !preview else { return }
         statusTask = Task { @MainActor [weak dot] in
             do {
                 _ = try await ExtensionService.shared.workers[config.id]?.test()

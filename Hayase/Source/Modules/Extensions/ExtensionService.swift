@@ -112,6 +112,7 @@ final class ExtensionService {
         workers.removeAll()
         configs.removeAll()
         options.removeAll()
+        try? FileManager.default.removeItem(at: codeDirectory)
     }
 
     // MARK: - Initialisation
@@ -176,6 +177,33 @@ final class ExtensionService {
         }
     }
 
+    // MARK: - ExtensionInstallPrompt (safejson, sanitizeExtensionUrl, _validateConfig)
+
+    /// storage.ts `sanitizeExtensionUrl`: a scheme that lost a slash gets it back, and trailing slashes go.
+    static func sanitizeExtensionURL(_ url: String) -> String {
+        var url = url
+        if url.hasPrefix("https:/"), !url.hasPrefix("https://") {
+            url = "https://" + url.dropFirst(7)
+        } else if url.hasPrefix("http:/"), !url.hasPrefix("http://") {
+            url = "http://" + url.dropFirst(6)
+        }
+        while url.hasSuffix("/") { url.removeLast() }
+        return url
+    }
+
+    /// `safejson<ExtensionConfig[]>(url)`: the extensions a manifest lists, or nil when it cannot be had.
+    func manifest(at rawURL: String) async -> [ExtensionConfig]? {
+        guard let url = jsonurl(rawURL),
+              let (data, response) = try? await URLSession.shared.data(from: url),
+              (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true else { return nil }
+        return try? decoder.decode([ExtensionConfig].self, from: data)
+    }
+
+    /// `storage._validateConfig`
+    func isValid(_ config: ExtensionConfig) -> Bool {
+        validateConfig(config)
+    }
+
     // MARK: - ConfigManager.delete (mirrors storage.ts delete())
 
     func delete(id: String) async {
@@ -183,6 +211,7 @@ final class ExtensionService {
         workers.removeValue(forKey: id)
         configs.removeValue(forKey: id)
         options.removeValue(forKey: id)
+        try? FileManager.default.removeItem(at: codeFile(for: id))
     }
 
     // MARK: - ConfigManager.setEnabled / setOption
@@ -196,7 +225,13 @@ final class ExtensionService {
     }
 
     func sourceCode(for id: String) async throws -> String {
-        guard let config = configs[id], let url = jsurl(config.code) else {
+        guard let config = configs[id] else { throw ExtensionError.invalidURL("Invalid extension source URL") }
+        return try await sourceCode(of: config)
+    }
+
+    /// The code of an extension that is not installed (yet) either: `safejs(config.code)`.
+    func sourceCode(of config: ExtensionConfig) async throws -> String {
+        guard let url = jsurl(config.code) else {
             throw ExtensionError.invalidURL("Invalid extension source URL")
         }
         let (data, response) = try await URLSession.shared.data(from: url)
@@ -211,6 +246,8 @@ final class ExtensionService {
 
     /// Fetch updated configs from all stored update URLs and reload changed extensions.
     func update() async {
+        // storage.ts `update`: `await this.ready`
+        await readyTask?.value
         let generation = self.generation
         let updateURLs = Set(configs.values.compactMap(\.update))
         guard !updateURLs.isEmpty else { return }
@@ -664,7 +701,7 @@ final class ExtensionService {
             }
             for (id, config) in enabledConfigs {
                 guard workers[id] == nil, let url = jsurl(config.code) else { continue }
-                await loadWorker(url: url, id: id)
+                await loadWorker(url: url, id: id, code: cachedCode(for: id))
             }
         }
 
@@ -920,7 +957,15 @@ final class ExtensionService {
                         print("ExtensionService: invalid code URL for \(config.id): \(config.code)")
                         return
                     }
-                    await self.loadWorker(url: url, id: config.id, showErrors: false)
+                    // `getMany(configIDs)`: the code that was saved
+                    let code = self.cachedCode(for: config.id)
+                    await self.loadWorker(url: url, id: config.id, showErrors: false, code: code)
+                    // an extension from before the code was kept: it is saved once, for the next start
+                    if code == nil, self.workers[config.id] != nil {
+                        Task { @MainActor in
+                            if let fetched = await self.fetchCode(from: url) { self.saveCode(fetched, for: config.id) }
+                        }
+                    }
                 }
             }
         }
@@ -934,21 +979,29 @@ final class ExtensionService {
         for config in cfgs {
             guard generation == self.generation, !Task.isCancelled else { break }
             if workers[config.id] != nil && !update { continue }
+            // `const code = await safejs(config.code); if (!code) invalidIDs.push(config.id)`
             guard let url = jsurl(config.code) else {
                 print("ExtensionService: invalid code URL for \(config.id): \(config.code)")
                 invalid.append(config.id)
                 continue
             }
-            await loadWorker(url: url, id: config.id)
+            guard let code = await fetchCode(from: url) else {
+                invalid.append(config.id)
+                continue
+            }
+            await loadWorker(url: url, id: config.id, code: code)
             if workers[config.id] == nil {
                 invalid.append(config.id)
+            } else {
+                // `set(config.id, code)`, once the worker has loaded
+                saveCode(code, for: config.id)
             }
         }
         return invalid
     }
 
     /// mirrors CodeManager._loadWorker — creates/replaces a WKWebView worker
-    private func loadWorker(url: URL, id: String, showErrors: Bool = true) async {
+    private func loadWorker(url: URL, id: String, showErrors: Bool = true, code: String? = nil) async {
         let generation = self.generation
         // Destroy old worker first
         if let old = workers[id] {
@@ -957,7 +1010,7 @@ final class ExtensionService {
         }
         let worker = ExtensionWorker(id: id)
         do {
-            try await worker.load(extensionURL: url)
+            try await worker.load(extensionURL: url, code: code)
             guard generation == self.generation, !Task.isCancelled else {
                 worker.destroy()
                 return
@@ -976,6 +1029,37 @@ final class ExtensionService {
         } catch {
             print("ExtensionService: failed to load worker for \(id): \(error)")
         }
+    }
+
+    // MARK: - The code of the extensions (storage.ts: idb-keyval `set(id, code)` and `getMany`)
+
+    /// Library/Application Support/Extensions/{id}.js
+    private var codeDirectory: URL {
+        (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory).appendingPathComponent("Extensions", isDirectory: true)
+    }
+
+    private func codeFile(for id: String) -> URL {
+        let name = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? id
+        return codeDirectory.appendingPathComponent(name + ".js")
+    }
+
+    private func cachedCode(for id: String) -> String? {
+        guard let text = try? String(contentsOf: codeFile(for: id), encoding: .utf8), !text.isEmpty else { return nil }
+        return text
+    }
+
+    private func saveCode(_ code: String, for id: String) {
+        try? FileManager.default.createDirectory(at: codeDirectory, withIntermediateDirectories: true)
+        try? code.write(to: codeFile(for: id), atomically: true, encoding: .utf8)
+    }
+
+    /// `safejs`: the code of an extension, or nil when it cannot be had.
+    private func fetchCode(from url: URL) async -> String? {
+        guard let (data, response) = try? await URLSession.shared.data(from: url),
+              (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true,
+              let text = String(data: data, encoding: .utf8), !text.isEmpty else { return nil }
+        return text
     }
 
     // MARK: - Persistence helpers

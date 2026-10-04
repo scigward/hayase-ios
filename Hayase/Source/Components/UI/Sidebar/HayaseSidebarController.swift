@@ -879,6 +879,8 @@ final class HayaseSidebarController: UIViewController {
                 self.showPlayerRoute(animated: uiAnimated)
             case .license:
                 self.showLicenseRoute(animated: navigationAnimated)
+            case .debug:
+                self.showDebugRoute(animated: navigationAnimated)
             default:
                 break
             }
@@ -1056,6 +1058,13 @@ final class HayaseSidebarController: UIViewController {
     private func showErrorPage(_ error: Router.RouteError, for route: Route, animated: Bool) {
         guard let nav = hostNavigationController(for: route) else { return }
         nav.pushViewController(ErrorPageViewController(status: error.status, message: error.message), animated: animated)
+    }
+
+    /// `routes/app/debug/+page.svelte`
+    private func showDebugRoute(animated: Bool) {
+        guard let nav = hostNavigationController(for: .debug) else { return }
+        if nav.topViewController is HayaseDebugViewController { return }
+        nav.pushViewController(HayaseDebugViewController(), animated: animated)
     }
 
     /// `routes/app/license/+page.svelte`
@@ -1348,7 +1357,7 @@ extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecogniz
 
     private var isCurrentRouteOwnedByRouter: Bool {
         switch router.currentRoute {
-        case .anime, .animeThread, .player, .license:
+        case .anime, .animeThread, .player, .license, .debug:
             return true
         default:
             return false
