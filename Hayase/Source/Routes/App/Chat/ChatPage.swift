@@ -1,5 +1,5 @@
 //
-//  HayaseChatViewController.swift
+//  ChatPage.swift
 //  Hayase
 //
 //  Made by scigward.
@@ -59,7 +59,7 @@
 //    An earlier pass hid it on narrow specifically to match
 //    `W2GViewController`'s existing wide/narrow pattern. Checked directly
 //    this time rather than assumed: `w2g/[id]/+page.svelte` has this exact
-//    same `flex-col-reverse` structure, and `W2GViewController.swift`
+//    same `flex-col-reverse` structure, and `W2GPage.swift`
 //    really does hide its own userlist on narrow the same way — so that
 //    was a real precedent, just a shared copy of the same gap rather than
 //    a considered simplification, and W2G's copy is still unfixed. Out of
@@ -69,7 +69,7 @@
 //    `UITextView` needs `isScrollEnabled = false` plus a manually-updated
 //    height constraint to size itself from its content.
 //  - Messages now use the same flipped-table-view + bubble-cell + grouping
-//    technique as `W2GChatCell` (`W2GViewController.swift`), instead of a
+//    technique as `W2GChatCell` (`W2GPage.swift`), instead of a
 //    plain one-row-per-message list with a manual scroll-to-bottom. This
 //    also closes a gap flagged earlier and left unfixed: interface's shared
 //    `Messages.svelte` (used by both W2G and IRC chat) visually clusters
@@ -738,7 +738,7 @@ extension HayaseChatViewController: UITableViewDataSource {
 
 private extension Array {
     /// Matches the `[safe:]` convention already used elsewhere in this
-    /// codebase (e.g. `W2GViewController.swift`).
+    /// codebase (e.g. `W2GPage.swift`).
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
     }

@@ -1,5 +1,5 @@
 //
-//  SearchViewController.swift
+//  SearchPage.swift
 //  Hayase
 //
 //  Mirrors: src/routes/app/search/+page.svelte and src/lib/components/ui/cards/query.svelte,

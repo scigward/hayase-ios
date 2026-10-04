@@ -11,9 +11,9 @@ set of pieces as the interface, one file per piece.
 
 | interface | Swift |
 | --- | --- |
-| `routes/app/home/+page.svelte` | `Routes/App/Home/HomePage.swift` (`HomeViewController`), `HomePage+DataSource.swift`, `HomePage+Banner.swift` |
-| the section queries in its `<script context='module'>` | `Routes/App/Home/Sections.swift` |
-| the header of each section | `Routes/App/Home/SectionHeader.swift` |
+| `routes/app/home/+page.svelte` | `Routes/App/Home/HomePage.swift` (`HomeViewController`), `HomePage.swift`, `HomePage.swift` |
+| the section queries in its `<script context='module'>` | `Routes/App/Home/HomePage.swift` |
+| the header of each section | `Routes/App/Home/HomePage.swift` |
 | `ui/banner/banner.svelte` | `Components/UI/Banner/Banner.swift` |
 | `ui/banner/banner-image.svelte` | `Components/UI/Banner/BannerImage.swift` |
 | `ui/banner/full-banner.svelte` | `FullBanner.swift`, `FullBanner+Layout.swift`, `ImgBanner.swift`, `FullBannerTitle.swift`, `FullBannerBadges.swift`, `FullBannerFollowing.swift`, `FullBannerProgress.swift` |
@@ -79,6 +79,6 @@ Preview card
 
 ## Left as it is
 
-- The cover that hides the banner picture when the page is scrolled past (`HomePage+Banner.swift`) is a
+- The cover that hides the banner picture when the page is scrolled past (`HomePage.swift`) is a
   documented stand-in for the 5% opacity of `hideBanner`: it hides the picture entirely instead.
 - `dragScroll` (mouse drag scrolling) and keyboard/gamepad focus have no touch counterpart.

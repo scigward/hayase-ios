@@ -11,9 +11,9 @@ Settings → Reset Everything clears that with the rest, so it comes back after 
 | `setup/+layout.svelte` | `SetupLayout.swift` (`SetupLayoutView`, `SetupGridBackground`, `SetupViewController`) |
 | `setup/+page.svelte` | `SetupPage.swift` (`SetupWelcomePage`) |
 | `setup/Progress.svelte` | `SetupProgress.swift` |
-| `setup/Footer.svelte` | `SetupFooter.swift`, `SetupCheckRow.swift`, `SetupChecks.swift` |
+| `setup/Footer.svelte` | `SetupFooter.swift`, `SetupFooter.swift`, `SetupFooter.swift` |
 | `setup/storage`, `network`, `extensions` | `SetupStoragePage.swift`, `SetupNetworkPage.swift`, `SetupExtensionsPage.swift` on `SetupStepView.swift` |
-| `network/+page.svelte` `speedTest` | `SetupSpeedTest.swift` (@cloudflare/speedtest 1.13, ported from its source) |
+| `network/+page.svelte` `speedTest` | `SetupNetworkPage.swift` (@cloudflare/speedtest 1.13, ported from its source) |
 | `$lib` `SETUP_VERSION`, `localStorage` keys | `SetupFlow.swift` |
 | `ui/checkbox`, `ui/tooltip`, `icons/Logo.svelte` | `Components/UI/Checkbox`, `Components/UI/Tooltip`, `Components/UI/Img/Logo.swift` (the sidebar uses the same logo path) |
 | `SettingCard.svelte` | `SettingsCardView` (now `bg-transparent`, label target and `self-baseline` aware) |

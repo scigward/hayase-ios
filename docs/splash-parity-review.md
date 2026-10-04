@@ -26,7 +26,7 @@ On a black screen, a `size-10` (40pt) box in the middle, at the time of the page
 | 6 spotlights | boxes `2.1 × size` by `size` of `linear-gradient(to right, #fff, transparent)`, through the same filter and `blur(3px)`; `left/top` the box's corner, `origin-left`; `rotate(angle) perspective(size × 2px) rotateY(dist × -50deg - 20deg)` with `dist = (192 - min(distance, 192)) / 192` (0.9219 for all); position, angle and size run from their `--from-*` values over 0.1s from 0.15s (ease-out); the opacity is `dist ×` a factor that goes from 1 to 0 over 0.55s (ease-out) |
 
 `Routes/Splash`: `SplashPage.swift` (`SplashViewController`, the page, which `AppDelegate` shows first and replaces with Home or the setup with the crossfade of
-a view transition), `SplashLogoView.swift` (the box, the logo and its aberration), `SplashSpotlight.swift` (the six streaks, their data copied from the page).
+a view transition), `SplashPage.swift` (the box, the logo and its aberration), `SplashPage.swift` (the six streaks, their data copied from the page).
 The mini player of the last session is restored when the app takes the splash's place, as it is mounted by the app's layout.
 
 Not the same, by necessity (there is no CSS filter or blur on a layer):

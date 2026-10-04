@@ -1,5 +1,5 @@
 //
-//  ScheduleViewController.swift
+//  SchedulePage.swift
 //  Hayase
 //
 //  Mirrors: interface routes/app/schedule/+page.svelte.

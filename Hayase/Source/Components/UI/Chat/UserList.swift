@@ -9,8 +9,8 @@
 //  the same way (`components/ui/chat/UserList.svelte`).
 //
 //  This used to be two separate, hand-copied implementations —
-//  `W2GUserCell` (private to W2GViewController.swift) and `IRCUserCell`
-//  (private to HayaseChatViewController.swift). The IRC copy drifted from
+//  `W2GUserCell` (private to W2GPage.swift) and `IRCUserCell`
+//  (private to ChatPage.swift). The IRC copy drifted from
 //  the W2G original in three visible ways: an extra vertical separator
 //  view W2G's layout never had, a narrower fixed width (180pt vs W2G's
 //  288pt / `md:w-72`), and avatar/label constraints that resolved to a much

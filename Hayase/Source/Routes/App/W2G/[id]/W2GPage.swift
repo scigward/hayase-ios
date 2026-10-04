@@ -1,4 +1,4 @@
-// W2GViewController.swift — W2G create/join screen and lobby with chat, user list, invite/quit
+// W2GPage.swift — W2G create/join screen and lobby with chat, user list, invite/quit
 // Mirrors: hayase-app/interface/src/routes/app/w2g/[id]/+page.svelte
 //
 // Layout (matching the web):
