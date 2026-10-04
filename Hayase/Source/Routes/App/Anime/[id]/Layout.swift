@@ -2210,6 +2210,9 @@ class AnimeDetailViewController: UIViewController {
                                                name: AniListViewerState.didChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(viewerListsChanged),
                                                name: LocalTracking.didChange, object: nil)
+        // `liveAnimeProgress` is derived from a store: the bar of the episode follows what the player writes
+        NotificationCenter.default.addObserver(self, selector: #selector(watchProgressChanged),
+                                               name: WatchProgressService.didChange, object: nil)
         headerView?.clearFollowingAvatars()
         applyTabBarLayoutForSizeClass()
         applyViewerStateFromRouteMedia()
@@ -2697,6 +2700,13 @@ class AnimeDetailViewController: UIViewController {
     }
 
     /// Nothing is drawn again when the entry is the one the page already shows.
+    @objc private func watchProgressChanged() {
+        guard isViewLoaded, view.window != nil else { return }
+        let rows = (tableView.indexPathsForVisibleRows ?? []).filter { Section(rawValue: $0.section) == .episodes }
+        guard !rows.isEmpty else { return }
+        UIView.performWithoutAnimation { tableView.reloadRows(at: rows, with: .none) }
+    }
+
     @objc private func viewerListsChanged() {
         guard isViewLoaded, let item = animeItem, item.id > 0 else { return }
         let entry = item.listEntry

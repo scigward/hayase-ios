@@ -663,7 +663,8 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     private var subtitles: Subtitles?
     /// Throttle watch-progress saves to avoid writing UserDefaults on every
     /// position callback. Saves every 5 seconds during active playback.
-    private var lastProgressSaveTime: Date = .distantPast
+    /// `const saveProgressLoop = setInterval(saveAnimeProgress, 10000)`
+    private var saveProgressLoop: Timer?
     private var isFullscreenPresentation = false
 
     /// True while the player is being minimized to in-app PiP. Prevents
@@ -770,6 +771,9 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         observeAppVisibility()
         NotificationCenter.default.addObserver(self, selector: #selector(elementDidNavigate(_:)),
                                                name: Navigate.didNavigate, object: nil)
+        saveProgressLoop = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            self?.saveAnimeProgress()
+        }
 
         loadCurrentVideo()
         scheduleHide()
@@ -880,7 +884,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         metadataLoadingOwner = nil
         appVisibilityObservers.forEach { NotificationCenter.default.removeObserver($0) }
         appVisibilityObservers.removeAll()
-        saveProgress()
+        saveProgressLoop?.invalidate()
         Router.shared.clearCachedPlayer(self)
         MiniPlayerManager.shared.clearSessionStateIfNeeded(for: self)
         if #available(iOS 15.0, *) {
@@ -1903,7 +1907,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         nowCastingPrevButton.isEnabled = canGoPrev
         nowCastingNextButton.isEnabled = canGoNext
         updateMediaSession(canGoPrev: canGoPrev, canGoNext: canGoNext)
-        restoreProgress(path: path)
+        loadAnimeProgress()
         startStatsTimer()
 
         // castplayer.svelte's prev/next are the same functions the normal
@@ -1914,21 +1918,16 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         }
     }
 
-    private func restoreProgress(path: String) {
-        // Primary: look up by exact video path.
-        var saved = WatchProgressService.shared.getProgress(videoPath: path)
-        // Fallback: look up by anilistID + episode (covers re-added torrents
-        // where the Torrents / Videos entities were recreated with different
-        // paths while the user had already watched part of the episode).
-        if saved == nil, anilistID > 0 {
-            saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episodeNumber)
-        }
-        guard let saved, saved.isInProgress, saved.currentTime > 5 else { return }
+    /// `loadAnimeProgress`: the episode that was played last of this media resumes five seconds before where it was
+    private func loadAnimeProgress() {
+        guard currentMediaID > 0, episodeNumber > 0,
+              let saved = WatchProgressService.shared.getAnimeProgress(mediaID: currentMediaID),
+              saved.episode == episodeNumber else { return }
         // Store the target time and apply it once MPV reports a valid duration
         // in didUpdatePosition. This works for both local files (where MPV is
         // ready almost immediately) and HTTP streams (where header buffering
         // can take several seconds or more).
-        pendingRestoreTime = saved.currentTime
+        pendingRestoreTime = max(saved.currentTime - 5, 0)
     }
 
     // MARK: - Matroska language parsing
@@ -2166,7 +2165,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         nowCastingProgressFillWidth = nowCastingProgressFill.widthAnchor.constraint(
             equalTo: nowCastingProgressContainer.widthAnchor, multiplier: min(max(progress, 0), 1))
         nowCastingProgressFillWidth?.isActive = true
-        checkCompletion(currentTime: elapsed, duration: castDuration, persistProgress: false)
+        checkCompletion(currentTime: elapsed, duration: castDuration)
         onCastTick?(elapsed, castDuration)
     }
 
@@ -2281,11 +2280,15 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
 
     // MARK: - Watch progress
 
-    private func saveProgress() {
-        guard let path = videoEntity?.videoPath, duration > 0 else { return }
-        WatchProgressService.shared.setProgress(
-            videoPath: path, anilistID: anilistID, episode: episodeNumber,
-            currentTime: currentTime, duration: duration)
+    /// `saveAnimeProgress`: every 10 seconds, while it plays
+    private func saveAnimeProgress() {
+        guard currentMediaID > 0, episodeNumber > 0 else { return }
+        if isBuffering || isPaused { return }
+        // `$: safeduration = isFinite(duration) ? duration : currentTime`
+        WatchProgressService.shared.setAnimeProgress(
+            mediaID: currentMediaID,
+            WatchProgress(episode: episodeNumber, currentTime: currentTime,
+                          safeduration: duration.isFinite ? duration : currentTime))
     }
 
     /// Matches Hayase player.svelte checkCompletion():
@@ -2296,7 +2299,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     /// playback's real currentTime/duration — otherwise stopping a cast and
     /// resuming local playback would resume against the anime's estimated
     /// duration instead of the actual file's.
-    private func checkCompletion(currentTime: Double? = nil, duration: Double? = nil, persistProgress: Bool = true) {
+    private func checkCompletion(currentTime: Double? = nil, duration: Double? = nil) {
         let currentTime = currentTime ?? self.currentTime
         let duration = duration ?? self.duration
         // Desktop defaults playerAutocomplete to true — see Settings.autocomplete
@@ -2308,7 +2311,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         let fromEnd = max(180.0, duration / 10.0)
         if duration - fromEnd < currentTime {
             trackingCompleted = true
-            if persistProgress { saveProgress() }
             AniListTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeNumber, episodesHint: totalEpisodes)
         }
     }
@@ -2592,7 +2594,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
 
         resolveNavigationEpisode(from: currentEpisode, delta: delta, mediaID: currentMediaID) { [weak self] targetEpisode in
             guard let self, let targetEpisode else { return }
-            self.saveProgress()
             self.playEpisode(targetEpisode, media: nil)
         }
     }
@@ -2871,7 +2872,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         let mediaID = currentMediaID
         guard mediaID > 0 else { return }
 
-        saveProgress()
         if let media = currentResolvedVideo?.media {
             Router.shared.cacheAnimeItem(media)
         }
@@ -2909,7 +2909,6 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
             guard let self else { return }
             let current = self.currentEpisodeForNavigation ?? self.episodeNumber
             guard episode != current else { return }
-            self.saveProgress()
             self.playEpisode(episode, media: media)
         }
         sheet.onDismiss = { [weak self] in
@@ -3319,15 +3318,6 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         // Check auto-completion (Hayase player.svelte checkCompletion)
         checkCompletion()
 
-        // Periodically save watch progress so it survives crashes / force-quits.
-        // Throttled to once every 5 seconds to avoid excessive UserDefaults writes.
-        if duration > 0, position > 0 {
-            let now = Date()
-            if now.timeIntervalSince(lastProgressSaveTime) >= 5.0 {
-                lastProgressSaveTime = now
-                saveProgress()
-            }
-        }
 
         // Emulating EOF (Streamyfin's renderer doesn't natively expose an EOF event).
         // Guard against false EOF triggers after a seek: when the server serves

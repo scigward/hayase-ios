@@ -472,12 +472,12 @@ final class EpisodeCardView: SelectableCardView {
             setNeedsLayout()
         } else if anilistID > 0,
                   // `$watchProgress?.episode === episode`: the interface keeps the episode played last, only
-                  let saved = WatchProgressService.shared.latestProgress(anilistID: anilistID),
-                  saved.episodeNumber == episode.number {
+                  let live = WatchProgressService.shared.liveAnimeProgress(mediaID: anilistID),
+                  live.episode == episode.number {
             progressBar.backgroundColor = EpisodeCardStyle.trackBackground
             progressBar.isHidden = false
-            let progressPercent = ceil(saved.fraction * 100) / 100
-            savedProgressFraction = min(max(progressPercent, 0), 1)
+            // `style:width={$watchProgress.progress + '%'}` in a row that clips it
+            savedProgressFraction = min(max(CGFloat(live.progress) / 100, 0), 1)
             setNeedsLayout()
         } else {
             progressBar.isHidden = true

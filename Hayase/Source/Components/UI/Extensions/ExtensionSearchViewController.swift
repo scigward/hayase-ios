@@ -1188,8 +1188,7 @@ final class ExtensionSearchViewController: UIViewController {
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
 
         // Re-use an existing Torrents entity with the same info-hash so that
-        // the linked Videos (and their videoPath keys) are preserved. This
-        // keeps WatchProgressService lookups working across re-opens.
+        // the linked Videos are preserved across re-opens.
         let entity: Torrents
         if !result.hash.isEmpty {
             let existReq = NSFetchRequest<Torrents>(entityName: Torrents.entityName)

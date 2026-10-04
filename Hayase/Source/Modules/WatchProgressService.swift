@@ -2,145 +2,102 @@
 //  WatchProgressService.swift
 //  Hayase
 //
-//  Matches Hayase's watchProgress.ts: persists episode currentTime + duration per
-//  video file. Lets VideoPlayerViewController restore position on re-open and lets
-//  HomeViewController build the "Continue Watching" home section.
+//  Mirrors: src/lib/modules/watchProgress.ts: one record for each media, `watchProgress[mediaId] = { episode,
+//  currentTime, safeduration }`, whichever episode of it was played last. The player writes it every 10 seconds
+//  while it plays (`saveAnimeProgress`) and reads it when the file has loaded (`loadAnimeProgress`); the episode
+//  list shows the bar of `liveAnimeProgress` on that episode.
+//
+//  Before this model the app kept a record for each video path, under `nyais_watchProgress`. Those are carried
+//  over once: the one that was played last of each media becomes its record.
 //
 
 import Foundation
 
 // MARK: - WatchProgress
 
-struct WatchProgress {
-    let anilistID: Int       // AniList media ID (0 if unknown)
-    let episodeNumber: Int   // episode index (1-based; file index + 1 if no ani.zip data)
-    let currentTime: Double  // seconds played
-    let duration: Double     // total duration in seconds
-    let updatedAt: Date
-
-    /// 0.0 … 1.0 — how much of the episode has been watched
-    var fraction: Double {
-        guard duration > 0 else { return 0 }
-        return min(currentTime / duration, 1.0)
-    }
-
-    /// Matches Hayase: < 5% = not started, ≥ 95% = completed → hide progress bar
-    var isInProgress: Bool { fraction >= 0.05 && fraction < 0.95 }
-    var isCompleted:  Bool { fraction >= 0.95 }
+/// `WatchProgress`
+struct WatchProgress: Equatable {
+    let episode: Int
+    let currentTime: Double
+    let safeduration: Double
 }
 
 // MARK: - WatchProgressService
 
-/// Singleton that stores watch progress in UserDefaults.
-/// Key space: "nyais_watchProgress" → [videoPath: {currentTime, duration, episode, anilistID, updatedAt}]
 final class WatchProgressService {
     static let shared = WatchProgressService()
+    /// Every write of the store, which `liveAnimeProgress` is derived from
     static let didChange = Notification.Name("WatchProgressDidChange")
-    private init() {}
 
-    private let udKey = "nyais_watchProgress"
+    private let key = "watchProgress"
+    private let legacyKey = "nyais_watchProgress"
+
+    private init() {
+        migrateLegacyProgress()
+    }
 
     // MARK: Read
 
-    func getProgress(videoPath: String) -> WatchProgress? {
-        guard let all = UserDefaults.standard.dictionary(forKey: udKey) as? [String: [String: Any]],
-              let d = all[videoPath] else { return nil }
-        return decode(d)
+    /// `getAnimeProgress`
+    func getAnimeProgress(mediaID: Int) -> WatchProgress? {
+        guard let entry = store()[String(mediaID)] else { return nil }
+        return decode(entry)
     }
 
-    /// Returns the most-recent in-progress entry for a given (anilistID, episodeNumber) pair.
-    func getProgress(anilistID: Int, episode: Int) -> WatchProgress? {
-        guard anilistID > 0 else { return nil }
-        return allProgress().values
-            .filter { $0.anilistID == anilistID && $0.episodeNumber == episode }
-            .sorted { $0.updatedAt > $1.updatedAt }
-            .first
-    }
-
-    /// `liveAnimeProgress(mediaId)`: the interface keeps one entry for a media, the episode that was
-    /// played last, and the episode list shows a bar on that episode only.
-    func latestProgress(anilistID: Int) -> WatchProgress? {
-        guard anilistID > 0 else { return nil }
-        return allProgress().values
-            .filter { $0.anilistID == anilistID }
-            .max { $0.updatedAt < $1.updatedAt }
+    /// `liveAnimeProgress`: `Math.ceil(currentTime / safeduration * 100)` and the episode, for the episode list
+    func liveAnimeProgress(mediaID: Int) -> (progress: Int, episode: Int)? {
+        guard mediaID != 0, let entry = getAnimeProgress(mediaID: mediaID) else { return nil }
+        let percent = (entry.currentTime / entry.safeduration * 100).rounded(.up)
+        // a width that is not a number is no width: the bar is as wide as its row
+        return (percent.isFinite ? Int(percent) : 100, entry.episode)
     }
 
     // MARK: Write
 
-    func setProgress(videoPath: String,
-                     anilistID: Int,
-                     episode: Int,
-                     currentTime: Double,
-                     duration: Double) {
-        guard !videoPath.isEmpty, duration > 0 else { return }
-        var dict = (UserDefaults.standard.dictionary(forKey: udKey) as? [String: [String: Any]]) ?? [:]
-        let oldIDs = continueWatchingAnilistIDs()
-        let oldProgress = decode(dict[videoPath] ?? [:])
-        dict[videoPath] = [
-            "currentTime": currentTime,
-            "duration":    duration,
-            "episode":     episode,
-            "anilistID":   anilistID,
-            "updatedAt":   Date().timeIntervalSince1970,
+    /// `setAnimeProgress`
+    func setAnimeProgress(mediaID: Int, _ progress: WatchProgress) {
+        var data = store()
+        data[String(mediaID)] = [
+            "episode": progress.episode,
+            "currentTime": progress.currentTime,
+            "safeduration": progress.safeduration,
         ]
-        UserDefaults.standard.set(dict, forKey: udKey)
-        let newProgress = decode(dict[videoPath] ?? [:])
-        let newIDs = continueWatchingAnilistIDs()
-        if oldIDs != newIDs ||
-            oldProgress?.isInProgress != newProgress?.isInProgress ||
-            oldProgress?.isCompleted != newProgress?.isCompleted {
-            notify()
-        }
+        UserDefaults.standard.set(data, forKey: key)
+        NotificationCenter.default.post(name: Self.didChange, object: self)
     }
 
-    // MARK: Continue Watching
+    // MARK: Private
 
-    /// Unique AniList IDs for which the user has an in-progress episode,
-    /// sorted by most-recently-watched first. Matches Hayase's continueIDs.
-    func continueWatchingAnilistIDs() -> [Int] {
-        // Matches Hayase home/+page.svelte: continueIDs.slice(0, 50)
-        let maxItems = 50
-        let inProgress = allProgress().values.filter { $0.isInProgress && $0.anilistID > 0 }
-        let sorted = inProgress.sorted { $0.updatedAt > $1.updatedAt }
-        var seen  = Set<Int>()
-        var result: [Int] = []
-        for p in sorted {
-            if seen.insert(p.anilistID).inserted { result.append(p.anilistID) }
-        }
-        return Array(result.prefix(maxItems))
+    private func store() -> [String: [String: Any]] {
+        UserDefaults.standard.dictionary(forKey: key) as? [String: [String: Any]] ?? [:]
     }
 
-    // MARK: Private helpers
-
-    private func allProgress() -> [String: WatchProgress] {
-        guard let all = UserDefaults.standard.dictionary(forKey: udKey) as? [String: [String: Any]] else { return [:] }
-        var result: [String: WatchProgress] = [:]
-        for (path, d) in all {
-            if let p = decode(d) { result[path] = p }
-        }
-        return result
+    private func decode(_ entry: [String: Any]) -> WatchProgress? {
+        guard let episode = entry["episode"] as? Int,
+              let currentTime = entry["currentTime"] as? Double,
+              let safeduration = entry["safeduration"] as? Double else { return nil }
+        return WatchProgress(episode: episode, currentTime: currentTime, safeduration: safeduration)
     }
 
-    private func decode(_ d: [String: Any]) -> WatchProgress? {
-        guard let ct  = d["currentTime"] as? Double,
-              let dur = d["duration"]    as? Double,
-              let ep  = d["episode"]     as? Int,
-              let aid = d["anilistID"]   as? Int,
-              let ts  = d["updatedAt"]   as? Double else { return nil }
-        return WatchProgress(
-            anilistID:     aid,
-            episodeNumber: ep,
-            currentTime:   ct,
-            duration:      dur,
-            updatedAt:     Date(timeIntervalSince1970: ts)
-        )
-    }
-
-    private func notify() {
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: Self.didChange, object: self)
-            NotificationCenter.default.post(name: LocalTracking.didChange, object: self)
+    /// The records of video paths of the earlier model: for each media the one that was played last
+    private func migrateLegacyProgress() {
+        let defaults = UserDefaults.standard
+        guard let legacy = defaults.dictionary(forKey: legacyKey) as? [String: [String: Any]] else { return }
+        var data = store()
+        var newest: [Int: Double] = [:]
+        for entry in legacy.values {
+            guard let mediaID = entry["anilistID"] as? Int, mediaID > 0,
+                  let episode = entry["episode"] as? Int,
+                  let currentTime = entry["currentTime"] as? Double,
+                  let duration = entry["duration"] as? Double,
+                  let updatedAt = entry["updatedAt"] as? Double else { continue }
+            // a record of the new model is not replaced; of the old ones the latest is taken
+            let isNewer = newest[mediaID].map { updatedAt > $0 } ?? (data[String(mediaID)] == nil)
+            guard isNewer else { continue }
+            newest[mediaID] = updatedAt
+            data[String(mediaID)] = ["episode": episode, "currentTime": currentTime, "safeduration": duration]
         }
+        defaults.set(data, forKey: key)
+        defaults.removeObject(forKey: legacyKey)
     }
 }
