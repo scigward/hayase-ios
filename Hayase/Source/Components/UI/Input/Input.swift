@@ -35,7 +35,7 @@ final class Input: UITextField, NoActiveScale {
 
     /// app.css: `input:active:not(.no-scale) { transition: all 0.1s ease-in-out; transform: scale(0.98) }`, and for
     /// a `no-scale` field `.scale-parent:has(.no-scale:active)`, which scales the box around it. The view to
-    /// scale while the field is pressed: the field itself, or its box. A field with none is not scaled.
+    /// scale while the field is pressed: the field itself (nil), or the box around it.
     weak var pressScaleTarget: UIView?
     private var pressAnimator: UIViewPropertyAnimator?
     private weak var pressedTarget: UIView?
@@ -44,7 +44,8 @@ final class Input: UITextField, NoActiveScale {
         pressAnimator?.stopAnimation(true)
         pressAnimator = nil
         if pressed {
-            guard isEnabled, let target = pressScaleTarget else { return }
+            guard isEnabled else { return }
+            let target = pressScaleTarget ?? self
             pressedTarget = target
             let animator = UIViewPropertyAnimator(duration: 0.1,
                                                   controlPoint1: CGPoint(x: 0.42, y: 0),

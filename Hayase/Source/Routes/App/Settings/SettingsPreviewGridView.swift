@@ -279,9 +279,8 @@ final class SettingsPreviewGridView: UIView, SettingsResponsiveView {
     }
 
     private func previewContainer(selected: Bool, value: String?) -> UIControl {
-        let view = UIControl()
-        view.layer.cornerRadius = 6
-        view.backgroundColor = selected ? UIColor.HayaseTheme.accent : .clear
+        let view = SettingsPreviewTile()
+        view.isOn = selected
         if let value {
             tileValues[ObjectIdentifier(view)] = value
             view.isAccessibilityElement = true
@@ -326,5 +325,59 @@ final class SettingsPreviewGridView: UIView, SettingsResponsiveView {
             label.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         return container
+    }
+}
+
+/// `<ToggleGroup.Item variant='ghost'>`: `data-[state=on]:bg-accent`, and `select:bg-secondary-foreground/30` while it is
+/// hovered, focused or pressed, with the 150ms of `transition-colors`. It is a button, so app.css scales it to 0.98 while
+/// it is pressed (`ActiveScale`).
+private final class SettingsPreviewTile: UIControl, ActiveElementObserver {
+    var isOn = false {
+        didSet { if isOn != oldValue { applyBackground(animated: window != nil) } }
+    }
+    private var isPointerOver = false
+    private var appliedSelected = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.cornerRadius = 6   // rounded-md
+        addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hoverChanged(_:))))
+        applyBackground(animated: false)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var isHighlighted: Bool {
+        didSet { updateSelectState() }
+    }
+
+    func activeElementDidChange() {
+        updateSelectState()
+    }
+
+    @objc private func hoverChanged(_ recognizer: UIHoverGestureRecognizer) {
+        isPointerOver = recognizer.state == .began || recognizer.state == .changed
+        updateSelectState()
+    }
+
+    private func updateSelectState() {
+        let selected = isEnabled && (isHighlighted || isPointerOver || isActiveElement)
+        guard selected != appliedSelected else { return }
+        appliedSelected = selected
+        applyBackground(animated: true)
+    }
+
+    private func applyBackground(animated: Bool) {
+        let apply = {
+            self.backgroundColor = self.appliedSelected
+                ? UIColor.HayaseTheme.secondaryForeground.withAlphaComponent(0.3)
+                : (self.isOn ? UIColor.HayaseTheme.accent : .clear)
+        }
+        guard animated else { apply(); return }
+        UIView.transition(with: self, duration: 0.15,
+                          options: [.transitionCrossDissolve, .allowUserInteraction, .beginFromCurrentState],
+                          animations: apply)
     }
 }

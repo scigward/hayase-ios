@@ -893,6 +893,7 @@ final class PlayerSubtitleDelayCell: UITableViewCell {
         inputField.keyboardType = .numbersAndPunctuation // Includes minus for negative delay.
         inputField.borderStyle = .none
         inputField.showsFocusRing = false // options.svelte border-0 !ring-0
+        inputField.pressScaleTarget = contentView   // `no-scale` in a `scale-parent` holding the Delay and sec labels
         inputField.backgroundColor = UIColor.HayaseTheme.muted
         inputField.font = .nunito(ofSize: 14, weight: .bold)
         inputField.layer.cornerRadius = 4

@@ -465,7 +465,7 @@ final class ExtensionSearchViewController: UIViewController {
         magIcon.contentMode = .scaleAspectFit
         magIcon.isUserInteractionEnabled = false
         magIcon.translatesAutoresizingMaskIntoConstraints = false
-        controlsView.addSubview(magIcon)
+        filterField.addSubview(magIcon)   // the field is `no-scale` in a `scale-parent`: the icon scales with it
         NSLayoutConstraint.activate([
             magIcon.leadingAnchor.constraint(equalTo: filterField.leadingAnchor, constant: 12),
             magIcon.centerYAnchor.constraint(equalTo: filterField.centerYAnchor),
