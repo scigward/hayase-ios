@@ -19,7 +19,7 @@ set of pieces as the interface, one file per piece.
 | `ui/banner/full-banner.svelte` | `FullBanner.swift`, `FullBanner+Layout.swift`, `ImgBanner.swift`, `FullBannerTitle.swift`, `FullBannerBadges.swift`, `FullBannerFollowing.swift`, `FullBannerProgress.swift` |
 | `ui/banner/skeleton-banner.svelte` | `Components/UI/Banner/SkeletonBanner.swift` |
 | `ui/cards/query.svelte` | `Components/UI/Cards/Query.swift` |
-| `ui/cards/small.svelte`, `episode.svelte` | `Components/UI/Cards/AnimeCollectionViewCell.swift` |
+| `ui/cards/small.svelte`, `episode.svelte` | `Components/UI/Cards/Small.swift` |
 | `ui/cards/skeleton.svelte` | `Components/UI/Skeleton/Skeleton.swift` (`SkeletonCardCell`) |
 | `ui/cards/preview.svelte` | `Components/UI/Cards/Preview.swift` |
 

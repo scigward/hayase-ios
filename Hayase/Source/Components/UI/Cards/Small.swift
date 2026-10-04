@@ -1,9 +1,15 @@
 //
-//  AnimeCollectionViewCell.swift
+//  Small.swift
 //  Hayase
 //
 //  Mirrors: src/lib/components/ui/cards/small.svelte and episode.svelte, and src/app.css
 //  (@keyframes load-in, global :active scale)
+//
+//  The card of an episode (`episode.svelte`) and the card of a trace.moe result (`trace.svelte`) are this cell with
+//  `episodeStyle` or a `trace` given to `configure`: a collection view reuses one cell class for all its cards, so
+//  the three looks are one class and not three. Their skeletons (`skeleton.svelte`, `skeletontrace.svelte`) are
+//  in Skeleton.swift, the status dot of the title (`StatusDot.svelte`) is in Components/StatusDot.swift, and the
+//  collection view that mounts the cards as `SmallCard` is at the end of this file.
 //
 //  small.svelte, laid out as the browser does:
 //    • outer item w-[11.5rem] h-[323px] with p-4, so the cover is 152×216pt at (16, 16)
@@ -40,9 +46,6 @@ class AnimeCollectionViewCell: UICollectionViewCell, InterfaceMountAnimating {
     static let titleFont = UIFont.nunito(ofSize: 12.8, weight: .black)
     static let titleLineHeight: CGFloat = 19.2
 
-    /// StatusDot.svelte: `inline-flex size-[0.55rem] me-1 rounded-full`
-    private static let statusDotSize: CGFloat = 8.8
-
     /// The title of a card, with the viewer's list status as the dot in front of it. The dot is
     /// inline, so it sits on the baseline of the first line only, and the text wraps beneath it.
     /// Svelte keeps the space between `{/if}` and the title, so there is one after `me-1`.
@@ -51,31 +54,10 @@ class AnimeCollectionViewCell: UICollectionViewCell, InterfaceMountAnimating {
                                             lineHeight: titleLineHeight)
         let result = NSMutableAttributedString()
         if let status {
-            let dot = NSTextAttachment()
-            dot.image = statusDotImage(for: status)
-            dot.bounds = CGRect(x: 0, y: 0, width: statusDotSize, height: statusDotSize)
-            let attachment = NSMutableAttributedString(attachment: dot)
-            var dotAttributes = attributes
-            dotAttributes[.kern] = 4   // me-1
-            attachment.addAttributes(dotAttributes, range: NSRange(location: 0, length: attachment.length))
-            result.append(attachment)
-            result.append(NSAttributedString(string: " ", attributes: attributes))
+            result.append(StatusDot.prefix(for: status, attributes: attributes))
         }
         result.append(NSAttributedString(string: title, attributes: attributes))
         return result
-    }
-
-    private static var statusDotImages: [String: UIImage] = [:]
-
-    private static func statusDotImage(for status: String) -> UIImage {
-        if let image = statusDotImages[status] { return image }
-        let size = CGSize(width: statusDotSize, height: statusDotSize)
-        let image = UIGraphicsImageRenderer(size: size).image { _ in
-            ScheduleStatusColor.color(for: status).setFill()
-            UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
-        }
-        statusDotImages[status] = image
-        return image
     }
 
     // MARK: Views
@@ -465,5 +447,219 @@ private extension UIColor {
             blue: CGFloat(rgb & 0xFF) / 255,
             alpha: 1
         )
+    }
+}
+
+// MARK: - AnimeCardCollectionView
+
+//  Mirrors: src/lib/components/ui/cards/small.svelte (component mount animation),
+//           src/lib/components/ui/cards/query.svelte and recommendation.svelte (keyed card identity)
+
+/// Gives reusable UIKit cells the same mount semantics as keyed `SmallCard` components.
+/// Re-entry starts a fresh component tree; data reloads only mount media IDs that were not
+/// already present in the current tree. Scrolling alone never creates a new mount cycle.
+final class AnimeCardCollectionView: UICollectionView {
+    private static let mountDuration: CFTimeInterval = 0.3  // small.svelte: animation 0.3s
+
+    private var mountedMediaIDsBySection: [Int: Set<Int>] = [:]
+    private var componentMountGeneration: UInt?
+    private var globalMountStartedAt: CFTimeInterval?
+    private var sectionMountStartedAt: [Int: CFTimeInterval] = [:]
+    private var wasAttachedToWindow = false
+    private var phaseInspectionScheduled = false
+
+    override init(frame: CGRect, collectionViewLayout layout: UICollectionViewLayout) {
+        super.init(frame: frame, collectionViewLayout: layout)
+        configureInterfaceInteraction()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureInterfaceInteraction()
+    }
+
+    private func configureInterfaceInteraction() {
+        // Browser :active begins on pointer-down. UIScrollView defaults to delaying touch-down
+        // while it decides whether the gesture is a scroll, so disable that delay for cards.
+        delaysContentTouches = false
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+
+        let isAttached = window != nil
+        if isAttached && !wasAttachedToWindow {
+            beginFreshComponentTree()
+        }
+        wasAttachedToWindow = isAttached
+    }
+
+
+    /// Identifies a logical component mount when UIKit reuses the same collection view object.
+    /// A new generation is equivalent to Svelte destroying and recreating the card subtree.
+    func setComponentMountGeneration(_ generation: UInt) {
+        guard componentMountGeneration != generation else { return }
+        componentMountGeneration = generation
+        beginFreshComponentTree()
+    }
+
+    override func reloadData() {
+        globalMountStartedAt = CACurrentMediaTime()
+        sectionMountStartedAt.removeAll()
+        super.reloadData()
+        schedulePhaseInspection()
+    }
+
+    override func reloadSections(_ sections: IndexSet) {
+        let now = CACurrentMediaTime()
+        for section in sections {
+            sectionMountStartedAt[section] = now
+        }
+        super.reloadSections(sections)
+        schedulePhaseInspection()
+    }
+
+    override func reloadItems(at indexPaths: [IndexPath]) {
+        let now = CACurrentMediaTime()
+        for section in Set(indexPaths.map(\.section)) {
+            sectionMountStartedAt[section] = now
+        }
+        super.reloadItems(at: indexPaths)
+        schedulePhaseInspection()
+    }
+
+    override func insertItems(at indexPaths: [IndexPath]) {
+        let now = CACurrentMediaTime()
+        for section in Set(indexPaths.map(\.section)) {
+            sectionMountStartedAt[section] = now
+        }
+        super.insertItems(at: indexPaths)
+    }
+
+    override func insertSections(_ sections: IndexSet) {
+        let now = CACurrentMediaTime()
+        for section in sections {
+            sectionMountStartedAt[section] = now
+        }
+        super.insertSections(sections)
+    }
+
+    /// `mediaID` is the key of the card within its section: the media of a `SmallCard`, or any number
+    /// that is not shared by two cards of the section (a skeleton uses its position, below zero).
+    func requestMountAnimation(for cell: InterfaceMountAnimating, mediaID: Int) {
+        guard window != nil,
+              let indexPath = indexPath(for: cell) else { return }
+
+        let section = indexPath.section
+        var mounted = mountedMediaIDsBySection[section] ?? []
+        guard !mounted.contains(mediaID) else { return }
+        mounted.insert(mediaID)
+        mountedMediaIDsBySection[section] = mounted
+
+        let startedAt = sectionMountStartedAt[section] ?? globalMountStartedAt
+        guard let startedAt,
+              CACurrentMediaTime() - startedAt < Self.mountDuration else { return }
+        cell.playInterfaceLoadInAnimation(startedAt: startedAt)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        inspectVisibleContentPhases()
+    }
+
+
+    private func beginFreshComponentTree() {
+        mountedMediaIDsBySection.removeAll()
+        sectionMountStartedAt.removeAll()
+        globalMountStartedAt = CACurrentMediaTime()
+        requestMountForVisibleCardsOnNextRunLoop()
+    }
+
+    private func schedulePhaseInspection() {
+        guard !phaseInspectionScheduled else { return }
+        phaseInspectionScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.phaseInspectionScheduled = false
+            self.inspectVisibleContentPhases()
+        }
+    }
+
+    private func inspectVisibleContentPhases() {
+        let visibleIndexPaths = indexPathsForVisibleItems
+        guard !visibleIndexPaths.isEmpty else { return }
+
+        let visibleSections = Set(visibleIndexPaths.map(\.section))
+        for section in visibleSections {
+            let cells = visibleIndexPaths
+                .filter { $0.section == section }
+                .compactMap { cellForItem(at: $0) }
+            guard !cells.isEmpty else { continue }
+
+            // Skeleton/error/empty branches destroy SmallCard components on the web.
+            // Clear only that section so the same media IDs mount again when cards return.
+            if !cells.contains(where: { $0 is AnimeCollectionViewCell }) {
+                mountedMediaIDsBySection[section] = nil
+            }
+        }
+    }
+
+    private func requestMountForVisibleCardsOnNextRunLoop() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            for case let cell as InterfaceMountAnimating in self.visibleCells {
+                cell.requestInterfaceMountAnimation()
+            }
+        }
+    }
+}
+
+// MARK: - CardLoadIn
+
+//  Mirrors: src/app.css `@keyframes load-in`, which small.svelte, episode.svelte and skeleton.svelte
+//  run on their `.item` when they mount: `animation: 0.3s ease 0s 1 load-in`.
+
+/// A card cell that plays the mount animation of its `.item`.
+protocol InterfaceMountAnimating: UICollectionViewCell {
+    /// Asks the collection view whether this cell is mounting, and plays the animation if so.
+    func requestInterfaceMountAnimation()
+    func playInterfaceLoadInAnimation(startedAt: CFTimeInterval)
+}
+
+enum CardLoadIn {
+    static let animationKey = "interfaceLoadIn"
+    static let duration: TimeInterval = 0.3
+    /// 1.2rem at the 16px root size
+    static let offsetY: CGFloat = 19.2
+    static let scale: CGFloat = 0.95
+
+    /// `translate3d(0, 1.2rem, 0) scale(0.95)` to none, with CSS `ease`.
+    static func play(on view: UIView, startedAt: CFTimeInterval) {
+        view.layer.removeAnimation(forKey: animationKey)
+        view.transform = .identity
+
+        let animation = CABasicAnimation(keyPath: "transform")
+        animation.fromValue = CATransform3DMakeAffineTransform(
+            CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: 0, ty: offsetY))
+        animation.toValue = CATransform3DIdentity
+        animation.duration = duration
+        animation.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+        animation.beginTime = view.layer.convertTime(startedAt, from: nil)
+        view.layer.add(animation, forKey: animationKey)
+    }
+
+    static func cancel(on view: UIView) {
+        view.layer.removeAnimation(forKey: animationKey)
+        view.transform = .identity
+    }
+
+    /// The collection view an `InterfaceMountAnimating` cell is in, if it is an `AnimeCardCollectionView`.
+    static func enclosingCollectionView(of cell: UIView) -> AnimeCardCollectionView? {
+        var candidate = cell.superview
+        while let view = candidate {
+            if let collectionView = view as? AnimeCardCollectionView { return collectionView }
+            candidate = view.superview
+        }
+        return nil
     }
 }

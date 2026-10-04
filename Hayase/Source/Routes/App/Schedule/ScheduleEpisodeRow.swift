@@ -8,23 +8,6 @@
 
 import UIKit
 
-/// A tracked media's colour in the list: the same for the dot and for the check.
-enum ScheduleStatusColor {
-    static func color(for status: String) -> UIColor {
-        switch status {
-        case "CURRENT": return UIColor(red: 61/255, green: 180/255, blue: 242/255, alpha: 1)
-        case "PLANNING": return UIColor(red: 247/255, green: 154/255, blue: 99/255, alpha: 1)
-        case "COMPLETED": return UIColor(red: 123/255, green: 213/255, blue: 85/255, alpha: 1)
-        case "PAUSED": return UIColor(red: 250/255, green: 122/255, blue: 122/255, alpha: 1)
-        case "REPEATING": return UIColor(red: 59/255, green: 174/255, blue: 234/255, alpha: 1)
-        case "DROPPED": return UIColor(red: 200/255, green: 80/255, blue: 80/255, alpha: 1)
-        case "PENDING": return UIColor(red: 180/255, green: 180/255, blue: 180/255, alpha: 1)
-        // `variant: 'CURRENT'` is the default
-        default: return UIColor(red: 61/255, green: 180/255, blue: 242/255, alpha: 1)
-        }
-    }
-}
-
 /// `StatusDot`, or the `Check` that replaces it once the episode is watched: `size-[0.55rem]`, with
 /// the check drawn at `strokeWidth={5}`.
 private final class ScheduleStatusMark: UIView {
@@ -90,7 +73,7 @@ final class ScheduleEpisodeRow: UIControl {
 
         var mark: ScheduleStatusMark?
         if let status = episode.entry?.status {
-            let color = ScheduleStatusColor.color(for: status)
+            let color = StatusDot.color(for: status)
             if (episode.entry?.progress ?? 0) >= episode.episode {
                 mark = ScheduleStatusMark(color: color, isCheck: true)
             } else if extraLarge {

@@ -16,8 +16,8 @@
 //  From `md` (768) the title and the filters wrap over rows of their own, and the buttons
 //  follow the last of them.
 
-import UIKit
 import PhotosUI
+import UIKit
 
 private enum SearchHeaderItem {
     case title
@@ -1678,5 +1678,48 @@ private final class SearchFilterItemCell: UICollectionViewCell {
     func configure(type: SearchFilterType, title: String, placeholder: Bool) {
         titleLabel.text = type.label
         comboBox.configure(text: title, placeholder: placeholder)
+    }
+}
+
+// MARK: - SearchComboBoxViewController
+
+//  Route adapter for the shared command popover component.
+
+final class SearchComboBoxViewController: CommandPopoverViewController {
+    init(filterType: SearchFilterType,
+         options: [SearchFilterOption],
+         selectedValues: Set<String>,
+         sourceView: UIView?) {
+        super.init(title: filterType.label,
+                   placeholder: filterType.placeholder,
+                   groups: Self.commandGroups(for: filterType, options: options),
+                   selectedValues: selectedValues,
+                   allowsMultiple: filterType.isMultiSelect,
+                   sourceView: sourceView)
+        filtersByCommandScore = true   // cmdk filters the search page's items by their `value`
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private static func commandGroups(for type: SearchFilterType,
+                                      options: [SearchFilterOption]) -> [CommandGroup] {
+        if type == .genres {
+            let genres = options
+                .filter { $0.group == .genre }
+                .map { CommandOption(value: $0.value, label: $0.label) }
+            let tags = options
+                .filter { $0.group == .tag }
+                .map { CommandOption(value: $0.value, label: $0.label) }
+            return [
+                CommandGroup(title: "Genres", options: genres),
+                CommandGroup(title: "Tags", options: tags),
+            ].filter { !$0.options.isEmpty }
+        }
+
+        return [CommandGroup(options: options.map {
+            CommandOption(value: $0.value, label: $0.label)
+        })]
     }
 }

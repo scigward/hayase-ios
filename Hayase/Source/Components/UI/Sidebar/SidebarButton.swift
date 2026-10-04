@@ -126,7 +126,7 @@ final class HayaseSidebarButton: UIButton, ActiveElementObserver {
         addSubview(iconView)
 
         dotView.translatesAutoresizingMaskIntoConstraints = false
-        dotView.backgroundColor = ScheduleStatusColor.color(for: "COMPLETED")   // StatusDot variant='COMPLETED'
+        dotView.backgroundColor = StatusDot.color(for: "COMPLETED")   // StatusDot variant='COMPLETED'
         dotView.layer.cornerRadius = 4.4
         dotView.isHidden = true
         dotView.isUserInteractionEnabled = false
