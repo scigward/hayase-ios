@@ -235,8 +235,8 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
             $0.applyGhostVariant()
             $0.layer.cornerRadius = 2   // rounded-sm
         }
-        favoriteButton.iconAnimation = .heartBeat
-        bookmarkButton.iconAnimation = .wobble
+        favoriteButton.iconAnimation = FavoriteButton.iconAnimation
+        bookmarkButton.iconAnimation = BookmarkButton.iconAnimation
         favoriteButton.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
         bookmarkButton.addTarget(self, action: #selector(bookmarkTapped), for: .touchUpInside)
     }
@@ -386,19 +386,12 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     private func updatePlayTitle(for media: AnimeItem) {
-        playButton.setTitle(FullBannerCell.playButtonTitle(status: media.listEntry?.status), for: .normal)
+        playButton.setTitle(PlayButton.title(listStatus: media.listEntry?.status), for: .normal)
     }
 
     private func refreshActionIcons() {
-        favoriteButton.setImage(previewActionIcon("heart", filled: isFavorite), for: .normal)
-        bookmarkButton.setImage(previewActionIcon("bookmark", filled: isBookmarked), for: .normal)
-    }
-
-    private func previewActionIcon(_ lucideId: String, filled: Bool) -> UIImage? {
-        if filled {
-            return UIImage.hayaseFilledIcon(lucideId, pointSize: 11.2)
-        }
-        return UIImage.hayaseIcon(lucideId, pointSize: 11.2)
+        favoriteButton.setImage(FavoriteButton.icon(isFavorite: isFavorite, pointSize: 11.2), for: .normal)
+        bookmarkButton.setImage(BookmarkButton.icon(isOnList: isBookmarked, pointSize: 11.2), for: .normal)
     }
 
     private func loadBanner(for media: AnimeItem) {

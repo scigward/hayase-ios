@@ -210,7 +210,7 @@ extension UIViewController {
                 guard let self else { return }
                 // play.svelte: `$status === 'COMPLETED' ? 1 : ($progressStore ?? 0) + 1`
                 let entry = media.listEntry
-                let episode = entry?.status == "COMPLETED" ? 1 : (entry?.progress ?? 0) + 1
+                let episode = PlayButton.episode(listStatus: entry?.status, progress: entry?.progress)
                 self.presentHayasePreviewExtensionSearch(media: media, episode: episode)
             },
             favorite: { media, completion in

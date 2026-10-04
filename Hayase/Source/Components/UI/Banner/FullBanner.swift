@@ -20,15 +20,6 @@ import UIKit
 final class FullBannerCell: UICollectionViewCell {
     static let reuseID = "FullBannerCell"
 
-    /// play.svelte: "Rewatch", "Continue" or "Watch Now".
-    static func playButtonTitle(status: String?) -> String {
-        switch status {
-        case "COMPLETED": return "Rewatch"
-        case "CURRENT", "REPEATING", "PAUSED": return "Continue"
-        default: return "Watch Now"
-        }
-    }
-
     // MARK: Callbacks
 
     /// The title or the logo was clicked: `href='/#/app/anime/{current.id}'`.
@@ -114,7 +105,7 @@ final class FullBannerCell: UICollectionViewCell {
     let playButton: SelectButton = {
         let b = SelectButton()
         b.applyPrimaryVariant()
-        b.setTitle(FullBannerCell.playButtonTitle(status: nil), for: .normal)
+        b.setTitle(PlayButton.title(listStatus: nil), for: .normal)
         // Play fill='currentColor' class='mr-2' size={iconSizes.default}: 0.8rem and 8pt before the text
         b.setImage(UIImage.hayaseFilledIcon("play", pointSize: 12.8), for: .normal)
         b.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 4)
@@ -125,8 +116,8 @@ final class FullBannerCell: UICollectionViewCell {
 
     /// FavoriteButton and BookmarkButton, variant='ghost' size='icon' (size-9), icon 1rem. A ghost button's
     /// `select:bg-secondary-foreground/20 select:text-accent-foreground`, and the banner adds `select:!text-custom`.
-    let favoriteButton = FullBannerCell.makeIconButton(animation: .heartBeat)
-    let bookmarkButton = FullBannerCell.makeIconButton(animation: .wobble)
+    let favoriteButton = FullBannerCell.makeIconButton(animation: FavoriteButton.iconAnimation)
+    let bookmarkButton = FullBannerCell.makeIconButton(animation: BookmarkButton.iconAnimation)
 
     private static func makeIconButton(animation: SelectButton.IconAnimation) -> SelectButton {
         let b = SelectButton()
@@ -332,13 +323,9 @@ final class FullBannerCell: UICollectionViewCell {
     /// `isFavourite` whenever those change; none of them asks AniList.
     private func updateViewerButtons(for item: AnimeItem) {
         let entry = item.listEntry
-        favoriteButton.setImage(item.isFavouriteForViewer
-            ? UIImage.hayaseFilledIcon("heart", pointSize: 16)
-            : UIImage.hayaseIcon("heart", pointSize: 16), for: .normal)
-        bookmarkButton.setImage(entry != nil
-            ? UIImage.hayaseFilledIcon("bookmark", pointSize: 16)
-            : UIImage.hayaseIcon("bookmark", pointSize: 16), for: .normal)
-        playButton.setTitle(Self.playButtonTitle(status: entry?.status), for: .normal)
+        favoriteButton.setImage(FavoriteButton.icon(isFavorite: item.isFavouriteForViewer), for: .normal)
+        bookmarkButton.setImage(BookmarkButton.icon(isOnList: entry != nil), for: .normal)
+        playButton.setTitle(PlayButton.title(listStatus: entry?.status), for: .normal)
     }
 
     @objc private func viewerStateChanged() {
