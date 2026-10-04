@@ -707,6 +707,13 @@ extension VideoPlayerViewController {
     func episodeDescriptionForDisplay() -> String { episodeDescriptionText() }
 
     /// Returns the anime title for the title label.
+    /// The name of the media and the episode line, again: the details of the media came in after the player was made
+    func refreshMediaTitle() {
+        titleLabel.content = animeTitleText()
+        episodeLabel.content = episodeDescriptionText()
+        updateMediaSession(canGoPrev: canNavigateToPreviousEpisode, canGoNext: canNavigateToNextEpisode)
+    }
+
     /// Hayase: `mediaInfo.session.title = title(media)` — the anime name.
     /// Falls back to the video file name if no anime metadata is linked.
     func animeTitleText() -> String {

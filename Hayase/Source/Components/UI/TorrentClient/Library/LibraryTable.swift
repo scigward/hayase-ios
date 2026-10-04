@@ -594,6 +594,7 @@ extension DownloadsViewController {
     func librarySeriesTitle(for entry: WebTorrentLibraryEntry) -> String {
         guard let mediaID = entry.mediaID, mediaID > 0 else { return "?" }
         if let cached = animeTitleCache[mediaID] { return cached }
+        if failedAnimeTitles.contains(mediaID) { return "?" }
 
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let request = NSFetchRequest<Animes>(entityName: Animes.entityName)
@@ -613,8 +614,13 @@ extension DownloadsViewController {
                 guard let self else { return }
                 self.pendingAnimeTitles.remove(mediaID)
                 switch result {
-                case .success(let title): self.animeTitleCache[mediaID] = title?.userPreferred ?? "?"
-                case .failure: self.animeTitleCache[mediaID] = "?"
+                case .success(let title):
+                    if let name = title?.userPreferred {
+                        self.animeTitleCache[mediaID] = name
+                    } else {
+                        self.failedAnimeTitles.insert(mediaID)
+                    }
+                case .failure: self.failedAnimeTitles.insert(mediaID)
                 }
                 self.libraryTableView?.reloadData()
             }
@@ -711,27 +717,11 @@ extension DownloadsViewController {
         torrentEntity.torrentSize = NSNumber(value: Double(entry.size) / 1024.0 / 1024.0)
 
         if let mediaID = entry.mediaID, mediaID > 0 {
-            torrentEntity.animes = animeEntity(mediaID: mediaID, fallbackTitle: entry.name)
+            VideoService.linkAnime(mediaID: mediaID, to: torrentEntity, fallbackTitle: animeTitleCache[mediaID])
         }
 
         try? context.save()
         return torrentEntity
-    }
-
-    func animeEntity(mediaID: Int, fallbackTitle: String) -> Animes? {
-        let context = CoreDataService.sharedCoreDataService.mainQueueContext
-        let request = NSFetchRequest<Animes>(entityName: Animes.entityName)
-        request.predicate = NSPredicate(format: "animeAnilistId == %@", NSNumber(value: mediaID))
-        request.fetchLimit = 1
-        if let existing = (try? context.fetch(request))?.first { return existing }
-
-        guard let anime = NSEntityDescription.insertNewObject(forEntityName: Animes.entityName, into: context) as? Animes else {
-            return nil
-        }
-        anime.animeAnilistId = NSNumber(value: mediaID)
-        anime.animeTitleEnglish = fallbackTitle
-        anime.animeTitleJapanese = fallbackTitle
-        return anime
     }
 
     func finishWebTorrentLibraryPlayback(videoService: VideoService,

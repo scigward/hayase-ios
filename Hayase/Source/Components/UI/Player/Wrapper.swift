@@ -800,7 +800,8 @@ final class MiniPlayerManager {
         guard !hash.isEmpty else { return }
 
         let source = torrentEntity?.torrentDownloadURL ?? ""
-        let state: [String: Any] = [
+        let anime = torrentEntity?.animes
+        var state: [String: Any] = [
             "backend":       "webtorrent",
             "torrentHash":   hash,
             "magnetLink":    source,
@@ -812,6 +813,12 @@ final class MiniPlayerManager {
             "episodeNumber": player.episodeNumber,
             "totalEpisodes": player.totalEpisodes
         ]
+        // the media, which a session made again at launch has to be told: its id is what the backend keeps the
+        // library entry by, and its name is what the player shows
+        if let english = anime?.animeTitleEnglish { state["animeTitleEnglish"] = english }
+        if let romaji = anime?.animeTitleJapanese { state["animeTitleRomaji"] = romaji }
+        if let cover = anime?.animeImgL ?? anime?.animeImgM { state["animeCover"] = cover }
+        if let episodes = anime?.animeTotalEps?.intValue { state["animeEpisodes"] = episodes }
         UserDefaults.standard.set(state, forKey: Self.sessionStateKey)
     }
 
@@ -921,6 +928,21 @@ final class MiniPlayerManager {
         torrentEntity.torrentName = (state["torrentName"] as? String) ?? torrentEntity.torrentName ?? hash
         if torrentEntity.torrentDownloadURL?.isEmpty ?? true {
             torrentEntity.torrentDownloadURL = restoredSource
+        }
+        // The session starts empty at launch, so the media is made again: without it the backend is told that
+        // the torrent has no media (its library entry loses it) and the player names the episode by its file.
+        var savedItem: AnimeItem?
+        let english = state["animeTitleEnglish"] as? String
+        let romaji = state["animeTitleRomaji"] as? String
+        if english != nil || romaji != nil {
+            savedItem = AnimeItem(id: anilistID, titleEnglish: english, titleRomaji: romaji,
+                                  coverURL: state["animeCover"] as? String, score: nil, status: nil,
+                                  episodes: state["animeEpisodes"] as? Int, bannerURL: nil, genres: [], description: nil)
+        }
+        VideoService.linkAnime(mediaID: anilistID, to: torrentEntity, item: savedItem) { [weak self] in
+            guard let self, let player = self.activePlayer else { return }
+            player.refreshMediaTitle()
+            if let container = self.containerView { self.addOverlay(to: container) }
         }
         try? context.save()
 

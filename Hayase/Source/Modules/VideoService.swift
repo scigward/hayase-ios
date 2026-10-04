@@ -75,6 +75,67 @@ public class VideoService: NSObject {
         }
     }
 
+    // MARK: - The media of a session
+
+    /// The media of a session as the `Animes` of its torrent, which is what `UpdateLocalVideo` tells the backend the media
+    /// is and what the player and the library show of it. It is found by its AniList id or made, from `item` (what is
+    /// known of the media) or else from `fallbackTitle`. A media that has no cover yet is a media that is only
+    /// known by its id, so its details are asked of AniList and `completion` is told when they are in.
+    @discardableResult
+    static func linkAnime(mediaID: Int, to torrentEntity: Torrents, item: AnimeItem? = nil,
+                          fallbackTitle: String? = nil, completion: (() -> Void)? = nil) -> Animes? {
+        guard mediaID > 0 else { return nil }
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let request = NSFetchRequest<Animes>(entityName: Animes.entityName)
+        request.predicate = NSPredicate(format: "animeAnilistId == %@", NSNumber(value: mediaID))
+        request.fetchLimit = 1
+
+        let anime: Animes
+        if let existing = (try? context.fetch(request))?.first {
+            anime = existing
+        } else if let created = NSEntityDescription.insertNewObject(forEntityName: Animes.entityName, into: context) as? Animes {
+            anime = created
+            anime.animeAnilistId = NSNumber(value: mediaID)
+        } else {
+            return nil
+        }
+
+        if let item {
+            fill(anime, from: item)
+        } else if anime.animeTitleEnglish == nil, anime.animeTitleJapanese == nil, let fallbackTitle, !fallbackTitle.isEmpty {
+            anime.animeTitleEnglish = fallbackTitle
+            anime.animeTitleJapanese = fallbackTitle
+        }
+        torrentEntity.animes = anime
+        try? context.save()
+
+        let hasCover = anime.animeImgL != nil || anime.animeImgM != nil || anime.animeImgS != nil
+        if !hasCover {
+            AniListClient.shared.singleMediaResult(id: mediaID) { result in
+                DispatchQueue.main.async {
+                    guard case .success(let items) = result, let found = items.first else { return }
+                    fill(anime, from: found)
+                    try? context.save()
+                    completion?()
+                }
+            }
+        }
+        return anime
+    }
+
+    /// What `startDownload` of the search dialog makes of an `AnimeItem`
+    static func fill(_ anime: Animes, from item: AnimeItem) {
+        anime.animeTitleEnglish = item.titleEnglish
+        anime.animeTitleJapanese = item.titleRomaji
+        anime.animeTotalEps = item.episodes.map { NSNumber(value: $0) }
+        anime.animeScore = item.score.map { NSNumber(value: $0) }
+        anime.animeStatus = item.status
+        anime.animeDescription = item.description
+        anime.animeImgL = item.coverURL
+        anime.animeImgM = item.coverURL
+        anime.animeImgS = item.bannerURL
+    }
+
     func ClearCurrentTorrentEntityAndVideos() {
         coreDataIsReady = false
         let context = CoreDataService.sharedCoreDataService.mainQueueContext

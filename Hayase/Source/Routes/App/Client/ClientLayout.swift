@@ -242,6 +242,9 @@ class DownloadsViewController: UIViewController {
     var webLastError: Error?
     var animeTitleCache: [Int: String] = [:]
     var pendingAnimeTitles: Set<Int> = []
+    /// The media whose title could not be asked for (`mediatitle.svelte` shows "?" for an `$query.error`): they are asked
+    /// for again when the tab is shown, as the cell asks again when it is made again
+    var failedAnimeTitles: Set<Int> = []
 
     var selectedLibraryHashes: Set<String> = []
     var librarySortColumn: Int?
@@ -692,6 +695,7 @@ class DownloadsViewController: UIViewController {
         updatePageHeader(for: index)
         // A store starts fresh when something subscribes to it.
         webStoresFetchedAt.removeAll()
+        failedAnimeTitles.removeAll()
         for (tabIndex, tabView) in tabContentViews.enumerated() {
             tabView.isHidden = tabIndex != index
         }
