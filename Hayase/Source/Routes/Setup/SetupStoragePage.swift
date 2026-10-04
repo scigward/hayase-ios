@@ -113,7 +113,7 @@ final class SetupStoragePage: SetupStepView {
         DispatchQueue.global(qos: .userInitiated).async {
             let space: Int64
             do {
-                space = try Self.availableSpace(at: path)
+                space = try Native.checkAvailableSpace(at: path)
             } catch {
                 DispatchQueue.main.async {
                     AppErrorToast.show(error.localizedDescription, title: "Failed to check available storage space.", duration: 15)
@@ -131,21 +131,6 @@ final class SetupStoragePage: SetupStepView {
             }
         }
         return check
-    }
-
-    /// `native.checkAvailableSpace()`: the free space of the volume the folder is on, which counts
-    /// what the system would give back when it is needed.
-    private static func availableSpace(at path: String) throws -> Int64 {
-        var url = URL(fileURLWithPath: path)
-        // The folder may not have been made yet: its volume is that of the nearest folder that has.
-        while !FileManager.default.fileExists(atPath: url.path), url.pathComponents.count > 1 {
-            url.deleteLastPathComponent()
-        }
-        let values = try url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        guard let capacity = values.volumeAvailableCapacityForImportantUsage else {
-            throw CocoaError(.fileReadUnknown)
-        }
-        return capacity
     }
 }
 

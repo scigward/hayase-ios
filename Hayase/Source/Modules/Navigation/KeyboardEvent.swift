@@ -22,6 +22,16 @@ import GameController
 // MARK: - Event
 
 final class KeyboardEvent {
+    /// `keydown` and `keyup`
+    enum EventType {
+        case keydown
+        case keyup
+    }
+
+    /// An event is on its way: the Debug page shows the latest of each kind, as its listener of the window does.
+    /// The object is the event.
+    static let didDispatch = Notification.Name("KeyboardEvent.didDispatch")
+
     /// `key`, as a key command names it
     enum Key {
         static let enter = "\r"
@@ -32,17 +42,23 @@ final class KeyboardEvent {
         static let arrowRight = UIKeyCommand.inputRightArrow
     }
 
+    let type: EventType
     let key: String
     let modifierFlags: UIKeyModifierFlags
     /// `repeat`
     let isRepeat: Bool
+    /// `!isTrusted`: the event was made by a controller and not by a keyboard
+    let isSynthetic: Bool
     private(set) var defaultPrevented = false
     private(set) var propagationStopped = false
 
-    init(key: String, modifierFlags: UIKeyModifierFlags = [], isRepeat: Bool = false) {
+    init(type: EventType = .keydown, key: String, modifierFlags: UIKeyModifierFlags = [], isRepeat: Bool = false,
+         isSynthetic: Bool = false) {
+        self.type = type
         self.key = key
         self.modifierFlags = modifierFlags
         self.isRepeat = isRepeat
+        self.isSynthetic = isSynthetic
     }
 
     func preventDefault() {
@@ -72,7 +88,8 @@ protocol KeyboardEventListener: UIResponder {
 extension KeyboardEvent {
     /// `target.dispatchEvent(event)`, the target being the element that has the focus, or else the page
     func dispatch() {
-        guard let container = Navigate.container else { return }
+        NotificationCenter.default.post(name: Self.didDispatch, object: self)
+        guard type == .keydown, let container = Navigate.container else { return }
         let active = Navigate.liveActiveElement(in: container)
 
         var listeners: [(KeyboardEvent) -> Void] = []

@@ -7,30 +7,30 @@
 
 import Foundation
 
-struct WebTorrentTorrentInfo: Decodable {
-    struct SizeInfo: Decodable {
+struct WebTorrentTorrentInfo: Codable {
+    struct SizeInfo: Codable {
         let total: UInt64
         let downloaded: UInt64
         let uploaded: UInt64
     }
 
-    struct SpeedInfo: Decodable {
+    struct SpeedInfo: Codable {
         let down: UInt64
         let up: UInt64
     }
 
-    struct TimeInfo: Decodable {
+    struct TimeInfo: Codable {
         let remaining: Double?
         let elapsed: Double?
     }
 
-    struct PeerCounts: Decodable {
+    struct PeerCounts: Codable {
         let seeders: Int
         let leechers: Int
         let wires: Int
     }
 
-    struct PieceInfo: Decodable {
+    struct PieceInfo: Codable {
         let total: Int
         let size: UInt64
     }
@@ -84,7 +84,7 @@ struct WebTorrentLibraryEntry: Decodable {
     let name: String
 }
 
-struct WebTorrentTrackerInfo: Decodable {
+struct WebTorrentTrackerInfo: Codable {
     let complete: Int
     let downloaded: Int
     let incomplete: Int
@@ -101,7 +101,7 @@ struct WebTorrentDisplay: Decodable, Equatable {
     let host: String
 }
 
-struct WebTorrentProtocolStatus: Decodable {
+struct WebTorrentProtocolStatus: Codable {
     let dht: Bool
     let lsd: Bool
     let pex: Bool

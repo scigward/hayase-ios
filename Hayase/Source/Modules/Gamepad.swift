@@ -217,10 +217,15 @@ final class Gamepad: NSObject {
     private func dispatch(_ event: GamepadPresses.Event, for button: Int) {
         guard let key = GamepadPresses.key(for: button) else { return }
         Navigate.inputType = .dpad
-        // Nothing in the app listens for a key coming up (a key command runs when it goes down).
-        guard case .keydown(let isRepeat) = event else { return }
-        // `target.dispatchEvent(new KeyboardEvent('keydown', ...))`: on the focused element, or else the body
-        KeyboardEvent(key: key.input, isRepeat: isRepeat).dispatch()
+        // `target.dispatchEvent(new KeyboardEvent('keydown', ...))`: on the focused element, or else the body.
+        // Nothing in the app listens for a key coming up (a key command runs when it goes down), so a `keyup` is
+        // only seen by the Debug page.
+        switch event {
+        case .keydown(let isRepeat):
+            KeyboardEvent(key: key.input, isRepeat: isRepeat, isSynthetic: true).dispatch()
+        case .keyup:
+            KeyboardEvent(type: .keyup, key: key.input, isSynthetic: true).dispatch()
+        }
     }
 }
 
