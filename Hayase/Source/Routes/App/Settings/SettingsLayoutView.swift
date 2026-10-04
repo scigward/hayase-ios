@@ -89,11 +89,25 @@ final class SettingsLayoutView: UIView, UIScrollViewDelegate {
         let contentWidth = max(0, wide ? bodyWidth - asideWidth - 48 : bodyWidth)
         let contentY = wide ? 0 : asideHeight
         page.frame = CGRect(x: contentX, y: contentY, width: contentWidth, height: page.bounds.height)
-        let pageHeight = page.arrangedSubviews.isEmpty ? 0 : page.systemLayoutSizeFitting(
-            CGSize(width: contentWidth, height: UIView.layoutFittingCompressedSize.height),
-            withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel).height
-        page.frame.size.height = ceil(pageHeight)
-        page.layoutIfNeeded()
+        // the labels get their widths in a layout pass (`WrappingLabel`), the height is measured after it
+        for _ in 0..<2 {
+            page.setNeedsLayout()
+            page.layoutIfNeeded()
+        }
+        // measured, laid out at that height, and measured again until the rows have the height their text needs
+        var pageHeight: CGFloat = 0
+        if !page.arrangedSubviews.isEmpty {
+            for _ in 0..<3 {
+                let fitted = ceil(page.systemLayoutSizeFitting(
+                    CGSize(width: contentWidth, height: UIView.layoutFittingCompressedSize.height),
+                    withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel).height)
+                let unchanged = abs(page.frame.height - fitted) < 0.5
+                page.frame.size.height = fitted
+                page.layoutIfNeeded()
+                pageHeight = fitted
+                if unchanged { break }
+            }
+        }
         let bottomPadding: CGFloat = wide ? 56 : (medium ? 40 : 80)
         let height = max(asideHeight, contentY + pageHeight + bottomPadding)
         scrollView.contentSize = CGSize(width: available, height: height)

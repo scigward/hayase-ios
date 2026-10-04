@@ -5,11 +5,24 @@ protocol SettingsResponsiveView: AnyObject {
     func updateLayout(viewportWidth: CGFloat)
 }
 
+/// A label that wraps: its height follows the width it has been given by the layout. A multi-line label is asked
+/// for its height before it has a width, so a page measured in one pass gets rows that are too short, and the stack
+/// then squeezes the title of a row, which is the first thing it can give up, over its description.
+final class WrappingLabel: UILabel {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if numberOfLines != 1, abs(preferredMaxLayoutWidth - bounds.width) > 0.5 {
+            preferredMaxLayoutWidth = bounds.width
+            invalidateIntrinsicContentSize()
+        }
+    }
+}
+
 enum SettingsTypography {
     static func label(_ text: String, size: CGFloat, lineHeight: CGFloat,
                       weight: UIFont.Weight = .regular,
                       color: UIColor = UIColor.HayaseTheme.foreground) -> UILabel {
-        let label = UILabel()
+        let label = WrappingLabel()
         label.font = .nunito(ofSize: size, weight: weight)
         label.textColor = color
         let paragraph = NSMutableParagraphStyle()
@@ -57,6 +70,8 @@ final class SettingsCardView: UIView, SettingsResponsiveView {
         let descriptionLabel = SettingsTypography.label(description, size: 12, lineHeight: 16,
                                                          weight: .medium, color: UIColor.HayaseTheme.mutedForeground)
         descriptionLabel.isHidden = description.isEmpty
+        // if a row is ever squeezed it is the description that gives way, not the title
+        titleLabel.setContentCompressionResistancePriority(UILayoutPriority(751), for: .vertical)
         textStack = UIStackView(arrangedSubviews: [titleLabel, descriptionLabel])
         super.init(frame: .zero)
         backgroundColor = transparent ? .clear : UIColor.HayaseTheme.muted

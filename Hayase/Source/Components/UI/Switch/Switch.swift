@@ -19,6 +19,9 @@ final class HayaseSwitch: UIControl {
         stateLabel.font = .nunito(ofSize: 12)
         stateLabel.textColor = UIColor.HayaseTheme.foreground
         stateLabel.isHidden = hideState
+        // a label that is too narrow clipped its text with an ellipsis; the text of the page is simply shown
+        stateLabel.lineBreakMode = .byClipping
+        stateLabel.numberOfLines = 1
         track.layer.cornerRadius = 8
         thumb.layer.cornerRadius = 6
         thumb.backgroundColor = UIColor.HayaseTheme.background
@@ -30,13 +33,20 @@ final class HayaseSwitch: UIControl {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    override var intrinsicContentSize: CGSize { CGSize(width: hidesState ? 32 : 56, height: 16) }
+    /// `w-4`: the box of the text is 16 wide and "Off" is a little wider, which the page lets overflow
+    private static let stateWidth: CGFloat = {
+        let font = UIFont.nunito(ofSize: 12)
+        let widest = ["On", "Off"].map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 16
+        return max(16, ceil(widest))
+    }()
+
+    override var intrinsicContentSize: CGSize { CGSize(width: hidesState ? 32 : 40 + Self.stateWidth, height: 16) }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         track.frame = CGRect(x: 0, y: (bounds.height - 16) / 2, width: 32, height: 16)
         thumb.frame = CGRect(x: isOn ? 18 : 2, y: 2, width: 12, height: 12)
-        stateLabel.frame = CGRect(x: 40, y: (bounds.height - 16) / 2, width: 20, height: 16)
+        stateLabel.frame = CGRect(x: 40, y: (bounds.height - 16) / 2, width: max(Self.stateWidth, bounds.width - 40), height: 16)
     }
 
     func setOn(_ value: Bool, animated: Bool) {
