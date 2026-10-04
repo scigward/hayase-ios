@@ -842,6 +842,12 @@ final class MiniPlayerManager {
         clearSessionState()
     }
 
+    /// `playHash`: `this.last.set({ id: infoHash, media, episode })`. The torrent that is played is the one that comes
+    /// back at launch, whether the player was ever minimized or not.
+    func saveSession(of player: VideoPlayerViewController) {
+        saveSessionState(player)
+    }
+
     /// Re-saves the session state if a mini-player is currently active.
     /// Called from AppDelegate.applicationDidEnterBackground so the latest
     /// playback position is persisted before the system may kill the app.

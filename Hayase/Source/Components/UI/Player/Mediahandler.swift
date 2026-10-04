@@ -49,6 +49,7 @@ extension VideoPlayerViewController {
         AniListTracking.shared.setInitialState(anilistID: anilistID, episode: episodeNumber)
 
         // `this.last.set({ id: infoHash, media, episode })`, then, in a lobby, w2globby.mediaChange.
+        MiniPlayerManager.shared.saveSession(of: self)
         if let hash = currentW2GTorrentHash, anilistID > 0 {
             W2GMediaState.last = W2GMediaState(torrent: hash, mediaId: anilistID, episode: episodeNumber)
             W2GLobby.shared.client?.mediaChange(
