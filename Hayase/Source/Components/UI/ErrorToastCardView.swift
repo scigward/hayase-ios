@@ -2,6 +2,12 @@ import UIKit
 
 enum AppToastKind { case loading, success, error }
 
+/// `action: { label, onClick }` of a toast: a button after the text, which also takes the toast away
+struct ToastAction {
+    let label: String
+    let handler: () -> Void
+}
+
 /// What the toast stack needs of a card: where it is in the stack, how tall it is and when it goes.
 protocol ToastCardView: UIView {
     var id: UUID { get }
@@ -27,11 +33,17 @@ final class ErrorToastCardView: UIView {
     private var remaining: TimeInterval
     private var dismissing = false
     private var kind: AppToastKind
+    private let action: ToastAction?
+    private let actionButton = UIButton(type: .custom)
+    /// `[data-button]` of svelte-sonner: 8pt either side of a 12pt label, 24pt high, and 6pt from the text
+    private static let actionHeight: CGFloat = 24
+    private static let actionGap: CGFloat = 6
 
     init(message: String, title: String, duration: TimeInterval,
-         id: UUID = UUID(), kind: AppToastKind = .error) {
+         id: UUID = UUID(), kind: AppToastKind = .error, action: ToastAction? = nil) {
         self.id = id
         self.kind = kind
+        self.action = action
         heading = Self.label(title, weight: .medium, lineHeight: 19.5, color: UIColor.HayaseTheme.foreground)
         detail = Self.label(message, weight: .regular, lineHeight: 18.2, color: UIColor.HayaseTheme.mutedForeground)
         remaining = duration
@@ -52,6 +64,17 @@ final class ErrorToastCardView: UIView {
         layer.insertSublayer(secondaryShadow, at: 0)
         icon.tintColor = UIColor.HayaseTheme.foreground
         [icon, loader, heading, detail].forEach { addSubview($0) }
+        if let action {
+            // `group-[.toast]:bg-primary group-[.toast]:text-primary-foreground`, rounded 4px, text-xs
+            actionButton.setTitle(action.label, for: .normal)
+            actionButton.setTitleColor(UIColor.HayaseTheme.primaryForeground, for: .normal)
+            actionButton.titleLabel?.font = UIFont.systemFont(ofSize: 12)
+            actionButton.backgroundColor = UIColor.HayaseTheme.primary
+            actionButton.layer.cornerRadius = 4
+            actionButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+            actionButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
+            addSubview(actionButton)
+        }
         updateIcon(animated: false)
         addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(pan(_:))))
         addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hover(_:))))
@@ -78,8 +101,11 @@ final class ErrorToastCardView: UIView {
         let loading = kind == .loading
         icon.image = kind == .success ? Self.successIcon : Self.errorIcon
         icon.isHidden = loading
-        accessibilityCustomActions = loading ? []
-            : [UIAccessibilityCustomAction(name: "Dismiss", target: self, selector: #selector(dismissForAccessibility))]
+        var customActions = [UIAccessibilityCustomAction(name: "Dismiss", target: self, selector: #selector(dismissForAccessibility))]
+        if let action {
+            customActions.insert(UIAccessibilityCustomAction(name: action.label, target: self, selector: #selector(actionForAccessibility)), at: 0)
+        }
+        accessibilityCustomActions = loading ? [] : customActions
         guard animated, !loading, !UIAccessibility.isReduceMotionEnabled else {
             icon.alpha = 1
             icon.transform = .identity
@@ -126,16 +152,32 @@ final class ErrorToastCardView: UIView {
         return label
     }
 
+    private var actionWidth: CGFloat {
+        guard action != nil else { return 0 }
+        return ceil(actionButton.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: Self.actionHeight)).width)
+    }
+
+    /// What the text has of the row: the button is after it, with a gap
+    private var actionSpace: CGFloat {
+        action == nil ? 0 : actionWidth + Self.actionGap
+    }
+
     func height(for width: CGFloat) -> CGFloat {
-        let textWidth = max(1, width - 57)
+        let textWidth = max(1, width - 57 - actionSpace)
         let titleHeight = heading.sizeThatFits(CGSize(width: textWidth, height: CGFloat.greatestFiniteMagnitude)).height
         let descriptionHeight = detail.sizeThatFits(CGSize(width: textWidth, height: CGFloat.greatestFiniteMagnitude)).height
-        return ceil(34 + max(16, titleHeight + (descriptionHeight > 0 ? 2 + descriptionHeight : 0)))
+        let content = titleHeight + (descriptionHeight > 0 ? 2 + descriptionHeight : 0)
+        return ceil(34 + max(16, content, action == nil ? 0 : Self.actionHeight))
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let width = max(1, bounds.width - 57)
+        let width = max(1, bounds.width - 57 - actionSpace)
+        if action != nil {
+            // `margin-left: auto`: at the end of the row, in the middle of it
+            actionButton.frame = CGRect(x: bounds.width - 17 - actionWidth, y: bounds.midY - Self.actionHeight / 2,
+                                        width: actionWidth, height: Self.actionHeight)
+        }
         let titleHeight = heading.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)).height
         let descriptionHeight = detail.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)).height
         heading.frame = CGRect(x: 40, y: 17, width: width, height: titleHeight)
@@ -169,6 +211,17 @@ final class ErrorToastCardView: UIView {
         dismissing = true
         pauseTimer()
         onDismiss?(swiped)
+    }
+
+    /// `toast.action.onClick(event)`, and the toast goes unless the event was prevented
+    @objc private func actionTapped() {
+        action?.handler()
+        dismiss(swiped: false)
+    }
+
+    @objc private func actionForAccessibility() -> Bool {
+        actionTapped()
+        return true
     }
 
     @objc private func dismissForAccessibility() -> Bool {
