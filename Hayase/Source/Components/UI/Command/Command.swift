@@ -59,6 +59,8 @@ class CommandPopoverViewController: UIViewController, KeyboardEventListener {
         }
     }
     private let closeRow = CommandCloseRowView()
+    /// The width of an item, which the height of its wrapped text depends on; set when the card is laid out.
+    private var itemWidth: CGFloat = 0
 
     init(title: String,
          placeholder: String = "Any",
@@ -319,7 +321,7 @@ class CommandPopoverViewController: UIViewController, KeyboardEventListener {
         // A plain table pads the top of every section by 22pt, which left a gap above the first entry.
         tableView.sectionHeaderTopPadding = 0
         tableView.rowHeight = 32
-        tableView.estimatedRowHeight = 32
+        tableView.estimatedRowHeight = 0   // an item is as tall as its wrapped text, which `heightForRowAt` measures
         tableView.dataSource = self
         tableView.delegate = self
         tableView.register(CommandItemCell.self,
@@ -372,26 +374,34 @@ class CommandPopoverViewController: UIViewController, KeyboardEventListener {
         containerView.layer.cornerRadius = dialog ? 8 : 6   // rounded-lg dialog, rounded-md popover
         let bounds = view.bounds.inset(by: view.safeAreaInsets)
         let searchHeight: CGFloat = showsSearch ? 37 : 0
+        let sourceRect = sourceView?.convert(sourceView?.bounds ?? .zero, to: view)
+            ?? CGRect(x: bounds.midX - 88, y: bounds.minY + 80, width: 176, height: 36)
+        // top-[10%] w-full max-w-[clamp(0px,95dvw,30rem)] max-h-[80dvh] as a dialog, the trigger's width as a popover
+        let width = dialog ? min(view.bounds.width * 0.95, 480) : min(sourceRect.width, bounds.width - 24)
+        let rowWidth = width - (isSelect ? 2 : 0) - 2 * Self.groupPadding
+        if abs(rowWidth - itemWidth) > 0.5 {
+            itemWidth = rowWidth
+            tableView.beginUpdates()   // the rows are measured again for the width they have
+            tableView.endUpdates()
+        }
         let rows = filteredGroups.reduce(0) { $0 + $1.options.count }
+        let rowsHeight = filteredGroups.reduce(CGFloat(0)) { sum, group in
+            sum + group.options.reduce(CGFloat(0)) { $0 + CommandItemCell.height(for: $1.label, width: rowWidth) }
+        }
         let headings = filteredGroups.filter { $0.title?.isEmpty == false }.count
         let naturalList = (rows == 0
             ? CGFloat(68)   // Command.Empty: py-6 around a 20pt line
-            : CGFloat(rows) * 32 + CGFloat(headings) * Self.headingHeight
+            : rowsHeight + CGFloat(headings) * Self.headingHeight
                 + CGFloat(filteredGroups.count) * Self.groupPadding * 2)
             + (isKeyboardNavigating ? Self.closeRowHeight : 0)
 
         if dialog {
-            // top-[10%] w-full max-w-[clamp(0px,95dvw,30rem)] max-h-[80dvh], centred
-            let width = min(view.bounds.width * 0.95, 480)
             let height = min(searchHeight + naturalList, view.bounds.height * 0.8)
             place(CGRect(x: (view.bounds.width - width) / 2,
                          y: view.bounds.height * 0.1,
                          width: width, height: height))
             return
         }
-
-        let sourceRect = sourceView?.convert(sourceView?.bounds ?? .zero, to: view)
-            ?? CGRect(x: bounds.midX - 88, y: bounds.minY + 80, width: 176, height: 36)
 
         let height: CGFloat
         if showsSearch {
@@ -406,7 +416,6 @@ class CommandPopoverViewController: UIViewController, KeyboardEventListener {
             let above = sourceRect.minY - 4 - (bounds.minY + 12)
             height = min(natural, max(32, below >= natural ? below : max(below, above)))
         }
-        let width = min(sourceRect.width, bounds.width - 24)
 
         var x = sourceRect.minX
         x = max(bounds.minX + 12, min(x, bounds.maxX - width - 12))
@@ -536,6 +545,11 @@ extension CommandPopoverViewController: UITableViewDataSource, UITableViewDelega
                        selected: selectedValues.contains(option.value),
                        multiple: allowsMultiple, selectStyle: !showsSearch)
         return cell
+    }
+
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard itemWidth > 0, let option = filteredGroups[safe: indexPath.section]?.options[safe: indexPath.row] else { return 32 }
+        return CommandItemCell.height(for: option.label, width: itemWidth)
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

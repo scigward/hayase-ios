@@ -63,16 +63,14 @@ final class CommandItemCell: UITableViewCell {
 
         checkContainer.translatesAutoresizingMaskIntoConstraints = false
         checkContainer.layer.cornerRadius = 4   // rounded-sm
-        // the Check icon is 24pt in its 16pt box and overflows it
-        checkContainer.layer.masksToBounds = false
 
         checkView.image = UIImage.hayaseIcon("check")?
             .withConfiguration(UIImage.SymbolConfiguration(pointSize: 12, weight: .bold))
         checkView.contentMode = .scaleAspectFit
         checkView.translatesAutoresizingMaskIntoConstraints = false
 
-        titleLabel.font = .nunito(ofSize: 14, weight: .regular)
-        titleLabel.textColor = UIColor.HayaseTheme.foreground
+        // the text is a flex item that wraps where the box and the gap leave no more room
+        titleLabel.numberOfLines = 0
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         contentView.addSubview(checkContainer)
@@ -110,7 +108,32 @@ final class CommandItemCell: UITableViewCell {
         NSLayoutConstraint.activate(checkContainerSizeConstraints)
     }
 
+    /// `px-2` on one side and the 16pt box with its `ml-2`/`mr-2` on the other (`pl-2 pr-8` in a select item)
+    private static let textInset: CGFloat = 40
+    /// `text-sm`: 14pt on a 20pt line
+    private static let lineHeight: CGFloat = 20
+
+    private static func textAttributes() -> [NSAttributedString.Key: Any] {
+        let style = NSMutableParagraphStyle()
+        style.minimumLineHeight = lineHeight
+        style.maximumLineHeight = lineHeight
+        style.lineBreakMode = .byWordWrapping
+        return [.font: UIFont.nunito(ofSize: 14, weight: .regular),
+                .foregroundColor: UIColor.HayaseTheme.foreground,
+                .paragraphStyle: style]
+    }
+
+    /// An item is as tall as its text (`py-1.5` around the lines, 32pt for one) in a row `width` wide.
+    static func height(for label: String, width: CGFloat) -> CGFloat {
+        let room = max(width - textInset, 1)
+        let text = (label as NSString).boundingRect(with: CGSize(width: room, height: .greatestFiniteMagnitude),
+                                                    options: .usesLineFragmentOrigin,
+                                                    attributes: textAttributes(), context: nil)
+        return max(32, ceil(text.height) + 12)
+    }
+
     override func layoutSubviews() {
+        titleLabel.preferredMaxLayoutWidth = max(bounds.width - Self.textInset, 1)
         super.layoutSubviews()
         hoverBackground.frame = bounds
     }
@@ -125,7 +148,7 @@ final class CommandItemCell: UITableViewCell {
     }
 
     func configure(option: CommandOption, selected: Bool, multiple: Bool, selectStyle: Bool = false) {
-        titleLabel.text = option.label
+        titleLabel.attributedText = NSAttributedString(string: option.label, attributes: Self.textAttributes())
         checkContainer.layer.borderWidth = multiple ? 1 : 0
         // an unselected box has `opacity-50`
         checkContainer.layer.borderColor = UIColor.HayaseTheme.primary
@@ -133,9 +156,10 @@ final class CommandItemCell: UITableViewCell {
         checkContainer.backgroundColor = selected && !selectStyle ? UIColor.HayaseTheme.primary : .clear
         checkView.tintColor = selectStyle ? UIColor.HayaseTheme.foreground : UIColor.HayaseTheme.primaryForeground
         checkView.isHidden = !selected
-        // `<Check className=…>` never reaches the svg, which keeps svelte-radix's default 24; the
-        // select item's `<Check class='h-4 w-4'>` does, in a `h-3.5 w-3.5` span at `right-2`
-        let checkSize: CGFloat = selectStyle ? 16 : 24
+        // `<Check className=…>` never reaches the svg, which keeps svelte-radix's 24x24 attributes, but as a flex
+        // item of the 16pt box it shrinks to 16 wide while its viewBox stays square, so the glyph draws at 16;
+        // the select item's `<Check class='h-4 w-4'>` is 16 in a `h-3.5 w-3.5` span at `right-2`
+        let checkSize: CGFloat = 16
         checkView.image = RadixIcons.check(size: checkSize)
         checkSizeConstraints.forEach { $0.constant = checkSize }
         checkContainerSizeConstraints.forEach { $0.constant = selectStyle ? 14 : 16 }
