@@ -17,8 +17,7 @@ extension VideoPlayerViewController {
     func captureScreenshot() {
         surface.mpv.captureScreenshotPNGData { [weak self] captured, failure in
             guard let self else { return }
-            // when mpv cannot hand the frame over, what the surface shows (at the size of the screen) is the picture
-            guard let data = captured ?? self.surfaceSnapshotPNG() else {
+            guard let data = captured else {
                 // the interface downloads the file when it cannot copy it; there is no frame to give here
                 AppErrorToast.show(failure ?? "", title: "Failed to copy screenshot to clipboard.", duration: 10)
                 return
@@ -26,20 +25,11 @@ extension VideoPlayerViewController {
 
             UIPasteboard.general.setData(data, forPasteboardType: "public.png")
             AppErrorToast.success("Saved screenshot to clipboard",
-                                  description: "Click here to download it as a PNG file instead."
-                                      + (captured == nil ? " (mpv: \(failure ?? "no answer"))" : ""),
+                                  description: "Click here to download it as a PNG file instead.",
                                   action: ToastAction(label: "Download") { [weak self] in
                                       self?.downloadScreenshot(data)
                                   })
         }
-    }
-
-    private func surfaceSnapshotPNG() -> Data? {
-        guard surface.bounds.width > 0, surface.bounds.height > 0 else { return nil }
-        let image = UIGraphicsImageRenderer(bounds: surface.bounds).image { _ in
-            surface.drawHierarchy(in: surface.bounds, afterScreenUpdates: true)
-        }
-        return image.pngData()
     }
 
     /// `download()` of util.ts: the PNG as `screenshot_<time>.png`, which the share sheet puts in Files

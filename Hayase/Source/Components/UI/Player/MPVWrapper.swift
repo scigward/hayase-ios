@@ -868,9 +868,7 @@ final class MPVWrapper {
             self.recentMessages = []
             self.screenshotFailure = nil
 
-            // without the subtitles drawn in, in case it is the drawing of them that fails
             let data = self.rawScreenshotPNG(handle, includeSubtitles: includeSubtitles)
-                ?? (includeSubtitles ? self.rawScreenshotPNG(handle, includeSubtitles: false) : nil)
             var failure: String?
             if data == nil {
                 self.drainEvents()   // mpv says why in its log, which comes as events
