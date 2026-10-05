@@ -872,7 +872,12 @@ final class MPVWrapper {
             var failure: String?
             if data == nil {
                 self.drainEvents()   // mpv says why in its log, which comes as events
-                failure = ([self.screenshotFailure].compactMap { $0 } + self.recentMessages.suffix(3)).joined(separator: " | ")
+                // what the screenshot of mpv needs: a configured video output, and a frame it can read
+                let state = ["vo-configured", "hwdec-current", "video-params/hw-pixelformat", "video-params/pixelformat"]
+                    .map { "\($0.split(separator: "/").last ?? ""): \(self.getStringProperty(handle: handle, name: $0) ?? "-")" }
+                    .joined(separator: " ")
+                failure = ([self.screenshotFailure].compactMap { $0 } + self.recentMessages.suffix(3) + [state])
+                    .joined(separator: " | ")
             }
             DispatchQueue.main.async { completion(data, failure) }
         }
