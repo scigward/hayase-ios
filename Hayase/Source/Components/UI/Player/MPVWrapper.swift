@@ -856,7 +856,9 @@ final class MPVWrapper {
                 return
             }
 
+            // without the subtitles drawn in, in case it is the drawing of them that fails
             let data = self.rawScreenshotPNG(handle, includeSubtitles: includeSubtitles)
+                ?? (includeSubtitles ? self.rawScreenshotPNG(handle, includeSubtitles: false) : nil)
             DispatchQueue.main.async { completion(data) }
         }
     }
