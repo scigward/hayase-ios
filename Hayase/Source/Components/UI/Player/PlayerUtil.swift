@@ -15,18 +15,19 @@ import UniformTypeIdentifiers
 extension VideoPlayerViewController {
     /// `screenshot` of util.ts: the frame is copied, and a toast says so with an action to have it as a file
     func captureScreenshot() {
-        surface.mpv.captureScreenshotPNGData { [weak self] captured in
+        surface.mpv.captureScreenshotPNGData { [weak self] captured, failure in
             guard let self else { return }
             // when mpv cannot hand the frame over, what the surface shows (at the size of the screen) is the picture
             guard let data = captured ?? self.surfaceSnapshotPNG() else {
                 // the interface downloads the file when it cannot copy it; there is no frame to give here
-                AppErrorToast.show("", title: "Failed to copy screenshot to clipboard.", duration: 4)
+                AppErrorToast.show(failure ?? "", title: "Failed to copy screenshot to clipboard.", duration: 10)
                 return
             }
 
             UIPasteboard.general.setData(data, forPasteboardType: "public.png")
             AppErrorToast.success("Saved screenshot to clipboard",
-                                  description: "Click here to download it as a PNG file instead.",
+                                  description: "Click here to download it as a PNG file instead."
+                                      + (captured == nil ? " (mpv: \(failure ?? "no answer"))" : ""),
                                   action: ToastAction(label: "Download") { [weak self] in
                                       self?.downloadScreenshot(data)
                                   })

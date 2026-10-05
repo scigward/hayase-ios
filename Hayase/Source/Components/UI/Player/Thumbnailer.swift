@@ -49,7 +49,7 @@ final class PlayerThumbnailer {
         lastCaptureIndex = index
         capturing = true
         let token = generation
-        renderer.captureScreenshotPNGData(includeSubtitles: false) { [weak self] data in
+        renderer.captureScreenshotPNGData(includeSubtitles: false) { [weak self] data, _ in
             guard let self, self.generation == token else { return }
             self.capturing = false
             guard let data, let image = UIImage(data: data), image.size.width > 0 else { return }

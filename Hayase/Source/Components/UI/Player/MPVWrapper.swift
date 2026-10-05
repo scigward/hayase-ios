@@ -455,17 +455,24 @@ final class MPVWrapper {
     
     private func processEvents() {
         queue.async { [weak self] in
-            guard let self else { return }
-            while self.mpv != nil && !self.isStopping {
-                guard let handle = self.mpv,
-                      let eventPointer = mpv_wait_event(handle, 0) else { return }
-                let event = eventPointer.pointee
-                if event.event_id == MPV_EVENT_NONE { break }
-                self.handleEvent(event)
-                if event.event_id == MPV_EVENT_SHUTDOWN { break }
-            }
+            self?.drainEvents()
         }
     }
+
+    /// Handles what mpv has queued. On `queue`.
+    private func drainEvents() {
+        while mpv != nil && !isStopping {
+            guard let handle = mpv,
+                  let eventPointer = mpv_wait_event(handle, 0) else { return }
+            let event = eventPointer.pointee
+            if event.event_id == MPV_EVENT_NONE { break }
+            handleEvent(event)
+            if event.event_id == MPV_EVENT_SHUTDOWN { break }
+        }
+    }
+
+    /// The last warnings and errors of mpv, for what a failed screenshot says. On `queue`.
+    private var recentMessages: [String] = []
     
     private func handleEvent(_ event: mpv_event) {
         switch event.event_id {
@@ -527,8 +534,10 @@ final class MPVWrapper {
                 switch String(cString: message.level) {
                 case "fatal", "error":
                     Logger.shared.log("mpv[\(component)] \(text)", type: "Error")
+                    recentMessages = Array((recentMessages + ["\(component): \(text)"]).suffix(8))
                 case "warn":
                     Logger.shared.log("mpv[\(component)] \(text)", type: "Warn")
+                    recentMessages = Array((recentMessages + ["\(component): \(text)"]).suffix(8))
                 default:
                     break
                 }
@@ -849,19 +858,29 @@ final class MPVWrapper {
         setProperty(name: "sub-delay", value: String(delay))
     }
 
-    func captureScreenshotPNGData(includeSubtitles: Bool = true, completion: @escaping (Data?) -> Void) {
+    /// The data of the PNG, or why there is none: what mpv answered and said.
+    func captureScreenshotPNGData(includeSubtitles: Bool = true, completion: @escaping (Data?, String?) -> Void) {
         queue.async { [weak self] in
             guard let self, let handle = self.mpv, !self.isStopping else {
-                DispatchQueue.main.async { completion(nil) }
+                DispatchQueue.main.async { completion(nil, "no player") }
                 return
             }
+            self.recentMessages = []
+            self.screenshotFailure = nil
 
             // without the subtitles drawn in, in case it is the drawing of them that fails
             let data = self.rawScreenshotPNG(handle, includeSubtitles: includeSubtitles)
                 ?? (includeSubtitles ? self.rawScreenshotPNG(handle, includeSubtitles: false) : nil)
-            DispatchQueue.main.async { completion(data) }
+            var failure: String?
+            if data == nil {
+                self.drainEvents()   // mpv says why in its log, which comes as events
+                failure = ([self.screenshotFailure].compactMap { $0 } + self.recentMessages.suffix(3)).joined(separator: " | ")
+            }
+            DispatchQueue.main.async { completion(data, failure) }
         }
     }
+
+    private var screenshotFailure: String?
 
     /// `screenshot-raw` hands the pixels over as they are, where `screenshot-to-file` needs the PNG encoder
     /// that this FFmpeg build leaves out; the PNG is made here.
@@ -871,6 +890,7 @@ final class MPVWrapper {
             mpv_command_ret(handle, pointer, &result)
         }
         guard status >= 0 else {
+            screenshotFailure = "screenshot-raw: \(String(cString: mpv_error_string(status)))"
             Logger.shared.log("MPV screenshot error: \(String(cString: mpv_error_string(status)))", type: "Error")
             return nil
         }
@@ -905,6 +925,7 @@ final class MPVWrapper {
                                   provider: provider, decode: nil, shouldInterpolate: false,
                                   intent: .defaultIntent)
         else {
+            screenshotFailure = "unexpected image \(format) \(width)x\(height)"
             Logger.shared.log("MPV screenshot error: unexpected image \(format) \(width)x\(height)", type: "Error")
             return nil
         }
