@@ -856,14 +856,57 @@ final class MPVWrapper {
                 return
             }
 
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("hayase_screenshot_\(UUID().uuidString).png")
-            let status = self.commandSync(handle, ["screenshot-to-file", url.path, includeSubtitles ? "subtitles" : "video"])
-            let data = status >= 0 ? try? Data(contentsOf: url) : nil
-            try? FileManager.default.removeItem(at: url)
-
+            let data = self.rawScreenshotPNG(handle, includeSubtitles: includeSubtitles)
             DispatchQueue.main.async { completion(data) }
         }
+    }
+
+    /// `screenshot-raw` hands the pixels over as they are, where `screenshot-to-file` needs the PNG encoder
+    /// that this FFmpeg build leaves out; the PNG is made here.
+    private func rawScreenshotPNG(_ handle: OpaquePointer, includeSubtitles: Bool) -> Data? {
+        var result = mpv_node()
+        let status = withCStringArray(["screenshot-raw", includeSubtitles ? "subtitles" : "video"]) { pointer in
+            mpv_command_ret(handle, pointer, &result)
+        }
+        guard status >= 0 else {
+            Logger.shared.log("MPV screenshot error: \(String(cString: mpv_error_string(status)))", type: "Error")
+            return nil
+        }
+        defer { mpv_free_node_contents(&result) }
+        guard result.format == MPV_FORMAT_NODE_MAP, let list = result.u.list?.pointee else { return nil }
+
+        var width = 0, height = 0, stride = 0
+        var format = ""
+        var pixels: Data?
+        for index in 0..<Int(list.num) {
+            guard let key = list.keys[index].map({ String(cString: $0) }) else { continue }
+            let value = list.values[index]
+            switch key {
+            case "w": width = Int(value.u.int64)
+            case "h": height = Int(value.u.int64)
+            case "stride": stride = Int(value.u.int64)
+            case "format": format = value.u.string.map { String(cString: $0) } ?? ""
+            case "data":
+                if let bytes = value.u.ba?.pointee, let base = bytes.data {
+                    pixels = Data(bytes: base, count: bytes.size)
+                }
+            default: break
+            }
+        }
+        guard format == "bgr0", width > 0, height > 0, stride >= width * 4,
+              let pixels, pixels.count >= stride * height,
+              let provider = CGDataProvider(data: pixels as CFData),
+              let image = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+                                  bytesPerRow: stride, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGBitmapInfo(rawValue: CGBitmapInfo.byteOrder32Little.rawValue
+                                                           | CGImageAlphaInfo.noneSkipFirst.rawValue),
+                                  provider: provider, decode: nil, shouldInterpolate: false,
+                                  intent: .defaultIntent)
+        else {
+            Logger.shared.log("MPV screenshot error: unexpected image \(format) \(width)x\(height)", type: "Error")
+            return nil
+        }
+        return UIImage(cgImage: image).pngData()
     }
 
     // MARK: - Deband
