@@ -128,6 +128,7 @@ class XcodeFixture:
             "    " + shlex.join(clang),
         ))
         self.archive_calls = []
+        self.architecture_checks = []
 
     @staticmethod
     def write(path, value):
@@ -153,6 +154,11 @@ class XcodeFixture:
             self.write(Path(args[args.index("-o") + 1]), "portable arm64 static archive")
             return ""
         if args[:2] == ["xcrun", "lipo"]:
+            # -verify_arch consumes all following arguments as architectures;
+            # putting the binary last is invalid on Apple's real lipo.
+            if len(args) != 5 or args[3:] != ["-verify_arch", "arm64"] or not Path(args[2]).is_file():
+                raise AssertionError("Invalid lipo verification command: " + repr(args))
+            self.architecture_checks.append(Path(args[2]))
             return ""
         if args[:2] == ["git", "-C"] and args[-2:] == ["ls-files", "-z"]:
             return "include/CThing.h\0SourcePackage.swift\0"
@@ -285,6 +291,17 @@ class ExportContractTests(unittest.TestCase):
         self.assertNotIn(lto_output.resolve(), inputs)
         self.assertEqual(set(inputs), {self.fixture.app_object.resolve(), self.fixture.package_object.resolve(),
                                        self.fixture.extra_object.resolve(), self.fixture.archive.resolve()})
+
+    def test_architecture_verification_covers_generated_archives_copied_libraries_and_frameworks(self):
+        exporter, _ = self.fixture.export()
+        expected = {exporter.deps / "Libraries/libSwiftSoup.a", exporter.deps / "Libraries/libAux.a",
+                    exporter.deps / "Frameworks/NodeMobile.framework/NodeMobile",
+                    exporter.deps / "Frameworks/StaticKit.framework/StaticKit"}
+        self.assertEqual(set(self.fixture.architecture_checks), expected)
+
+    def test_lipo_contract_rejects_binary_after_architecture_list(self):
+        with self.assertRaisesRegex(AssertionError, "Invalid lipo verification command"):
+            self.fixture.run("xcrun", "lipo", "-verify_arch", "arm64", self.fixture.archive)
 
     def test_generated_sources_inside_checkout_build_directory_are_exported_as_generated(self):
         target_temp = self.fixture.repo / "build/DerivedData/Build/Intermediates.noindex/Hayase.build/Release-iphoneos/Hayase.build"

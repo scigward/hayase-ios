@@ -267,7 +267,7 @@ class Exporter:
             # Archiving preserves Swift autolink metadata. .o files themselves
             # cannot be exported: Nyxian.clean() deletes them from projects.
             run("xcrun", "libtool", "-static", "-o", dest, *paths)
-            run("xcrun", "lipo", "-verify_arch", "arm64", dest)
+            run("xcrun", "lipo", dest, "-verify_arch", "arm64")
             self.lib_names.add(name)
             self.nx_link.extend(["-force_load", "$(SRCROOT)/" + dest.relative_to(self.project).as_posix()])
 
@@ -278,7 +278,7 @@ class Exporter:
             require(sha256(dest) == sha256(path), f"Colliding library: {path.name}")
         else:
             copy_tree(path, dest)
-        run("xcrun", "lipo", "-verify_arch", "arm64", dest)
+        run("xcrun", "lipo", dest, "-verify_arch", "arm64")
         self.lib_names.add(name)
         return "$(SRCROOT)/" + dest.relative_to(self.project).as_posix()
 
@@ -294,7 +294,7 @@ class Exporter:
         else:
             require(sha256(source / name) == sha256(dest / name), f"Colliding framework: {name}")
         self.mappings.append((source.resolve(), dest))
-        run("xcrun", "lipo", "-verify_arch", "arm64", dest / name)
+        run("xcrun", "lipo", dest / name, "-verify_arch", "arm64")
         self.framework_names.add(name)
         return "$(SRCROOT)/" + (dest / name).relative_to(self.project).as_posix()
 
