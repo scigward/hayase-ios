@@ -130,3 +130,37 @@ workflows:
 
     artifacts:
       - Hayase.ipa
+
+  # Deliberately manual: exporting dependencies is not needed on every IPA push.
+  hayase_nyxian_source:
+    name: Export Nyxian Source
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: latest
+      vars:
+        HOMEBREW_NO_AUTO_UPDATE: 1
+        HOMEBREW_NO_INSTALL_CLEANUP: 1
+    cache:
+      cache_paths:
+        - $HOME/.hayase-spm
+    scripts:
+      - name: Install export tools
+        script: |
+          set -euo pipefail
+          command -v xcodegen >/dev/null || brew install xcodegen
+          command -v node >/dev/null || brew install node
+          command -v python3 >/dev/null || brew install python
+      - name: Test the Nyxian exporter
+        script: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/tests -p 'test_nyxian_export.py' -v
+      - name: Build and validate Nyxian source export
+        script: |
+          set -euo pipefail
+          bash ./scripts/export_nyxian_source.sh
+    artifacts:
+      - build/nyxian-export/Hayase-Nyxian-Source.zip
+      - build/nyxian-export/Hayase-Nyxian-Source.zip.sha256
+      - build/nyxian-export/export-report.json
+      - build/nyxian-export/*.log
