@@ -74,11 +74,22 @@ private final class RelationTextNodeView: UIView, FlowNodeComponent {
     private let sourceHandle = HandleView(type: .source, position: .right)
 
     private var hasMedia = false
+    private var mediaID: Int?
+    var onSelectMedia: ((Int) -> Void)?
 
     init() {
         super.init(frame: .zero)
 
         clipsToBounds = false
+        isAccessibilityElement = true
+        accessibilityTraits = .link
+
+        // TextNode's <a href> uses app.css's shared :active scale and focus fill. Register the
+        // inner card with those utilities; pointer/touch navigation remains SwiftFlow's click.
+        card.onDPadClick = { [weak self] in
+            guard let self, let id = self.mediaID else { return }
+            self.onSelectMedia?(id)
+        }
 
         card.backgroundColor = Self.background
         card.layer.cornerRadius = 2
@@ -116,7 +127,14 @@ private final class RelationTextNodeView: UIView, FlowNodeComponent {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    override func accessibilityActivate() -> Bool {
+        guard let mediaID, let onSelectMedia else { return false }
+        onSelectMedia(mediaID)
+        return true
+    }
+
     func update(props: NodeProps) {
+        mediaID = Int(props.id)
         targetHandle.position = props.targetPosition ?? .left
         sourceHandle.position = props.sourcePosition ?? .right
 
@@ -124,6 +142,7 @@ private final class RelationTextNodeView: UIView, FlowNodeComponent {
         let isCurrent = props.data["current"] as? Bool ?? false
         let accent = props.data["accent"] as? UIColor ?? Self.foreground
 
+        accessibilityLabel = media?.titleUserPreferred ?? "TBA"
         hasMedia = media != nil
         titleBackground.isHidden = media == nil
         titleLabel.isHidden = media == nil
@@ -177,7 +196,10 @@ private final class RelationTextNodeView: UIView, FlowNodeComponent {
     override func layoutSubviews() {
         super.layoutSubviews()
 
-        card.frame = bounds
+        // Do not assign a transformed view's frame while ActiveScale is pressing it. The outer
+        // node and its handles keep their graph geometry; only the link's visual box scales.
+        card.bounds = CGRect(origin: .zero, size: bounds.size)
+        card.center = CGPoint(x: bounds.midX, y: bounds.midY)
 
         let inner = bounds.insetBy(dx: 1, dy: 1)
         handleBox.frame = inner
@@ -300,7 +322,11 @@ final class RelationGraphCell: UITableViewCell {
         flow.onlyRenderVisibleElements = true
         flow.minZoom = 0
         flow.maxZoom = 1.2
-        flow.nodeTypes = ["customText": { RelationTextNodeView() }]
+        flow.nodeTypes = ["customText": { [weak self] in
+            let node = RelationTextNodeView()
+            node.onSelectMedia = { [weak self] id in self?.selectMedia(id) }
+            return node
+        }]
         flow.elementsSelectable = false
         flow.fontProvider = { size, weight in .nunito(ofSize: size, weight: weight) }
 
