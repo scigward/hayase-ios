@@ -354,9 +354,7 @@ final class FullBannerCell: UICollectionViewCell {
             // Hide both title and clearlogo initially — the ani.zip request resolves which to show.
             // `{#await episodesCached()}` shows nothing while loading, then the logo or the text.
             titleLink.titleLabel.content = AniListUtil.title(for: item)
-            titleLink.titleLabel.isHidden = true
-            titleLink.logoView.isHidden = true
-            titleLink.logoView.image = nil
+            resetFeaturedTitle()
             // desc(): "No description available." only where AniList has none; the element's white space
             // collapses, so a paragraph break does not break the line.
             descriptionLabel.content = item.description.map(CSSText.collapsingWhitespace) ?? "No description available."
@@ -374,7 +372,7 @@ final class FullBannerCell: UICollectionViewCell {
             bookmarkButton.selectedTint = customColor
             updateViewerButtons(for: item)
             updateFollowing(for: item)
-            layoutIfNeeded()
+            settleFeaturedLayout()
         }
         progressView.setActive(currentIndex, color: customColor)
 
@@ -473,9 +471,12 @@ final class FullBannerCell: UICollectionViewCell {
     // MARK: Lifecycle
 
     override func layoutSubviews() {
-        super.layoutSubviews()
         applyLayout(forWidth: viewportWidth)
         updateBalancedWidths()
+        super.layoutSubviews()
+        // Balancing invalidates the labels' intrinsic sizes. Settle the content ancestor before
+        // displaying, rather than letting its columns retain the preceding title's height.
+        contentView.layoutIfNeeded()
     }
 
     override func didMoveToWindow() {
@@ -503,8 +504,7 @@ final class FullBannerCell: UICollectionViewCell {
         clearlogoTask = nil
         items = []
         followingUsersByMediaID = [:]
-        titleLink.logoView.image = nil
-        titleLink.logoView.isHidden = true
+        resetFeaturedTitle()
         titleLink.titleLabel.isHidden = false
         followingView.reset()
         bannerHidden = false

@@ -94,11 +94,25 @@ extension FullBannerCell {
     /// `text-balance` wraps at the narrowest width that keeps the lines, so each label is told how
     /// wide the element it stands for could be.
     func updateBalancedWidths() {
-        titleLink.updateBalance(columnWidth: leftColumn.bounds.width)
-        if viewportWidth >= 1024 {
-            descriptionLabel.balanceMaxWidth = max(0, rightColumn.bounds.width * 0.75 - 15)
+        let large = viewportWidth >= 1024
+        // These widths follow the grid's constraints, not its previous frames. A new title or a
+        // breakpoint change can invalidate its intrinsic height before the nested stacks lay out.
+        let gridWidth = max(0, bounds.width - columnsLeadingConstraint.constant)
+        let columnWidth = large ? gridWidth / 2 : gridWidth
+        titleLink.updateBalance(columnWidth: columnWidth)
+        if large {
+            descriptionLabel.balanceMaxWidth = max(0, columnWidth * 0.75 - 15)
         } else {
-            descriptionLabel.balanceMaxWidth = max(0, columnsStack.bounds.width * 0.90)
+            descriptionLabel.balanceMaxWidth = gridWidth * 0.90
         }
+    }
+
+    /// Settle the whole grid when the async title changes from pending to text or a logo. Laying
+    /// out only the inner title stack can leave both columns positioned using its previous height.
+    func settleFeaturedLayout() {
+        setNeedsLayout()
+        contentView.setNeedsLayout()
+        layoutIfNeeded()
+        contentView.layoutIfNeeded()
     }
 }

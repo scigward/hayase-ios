@@ -88,6 +88,16 @@ extension FullBannerCell {
 
     // MARK: Logo
 
+    /// Pending `{#await episodesCached()}` has no title art. Remove the previous logo's sizing
+    /// too, so its aspect constraint cannot compete with UIStackView's hidden-view constraints.
+    func resetFeaturedTitle() {
+        clearlogoAspectConstraint?.isActive = false
+        clearlogoAspectConstraint = nil
+        titleLink.titleLabel.isHidden = true
+        titleLink.logoView.isHidden = true
+        titleLink.logoView.image = nil
+    }
+
     /// Fetches the logo (transparent title art) from ani.zip for the current item.
     /// If found, displays it and hides the text title. Otherwise keeps the text.
     /// Matches full-banner.svelte:
@@ -133,20 +143,27 @@ extension FullBannerCell {
 
     private func showTitleText(forItemID itemID: Int, generation: Int) {
         guard artworkGeneration == generation, currentItem?.id == itemID else { return }
-        titleLink.titleLabel.isHidden = false
+        UIView.performWithoutAnimation {
+            titleLink.titleLabel.isHidden = false
+            settleFeaturedLayout()
+        }
     }
 
     private func showClearlogo(_ image: UIImage, forItemID: Int, blurred: Bool) {
         guard currentItem?.id == forItemID else { return }
-        clearlogoAspectConstraint?.isActive = false
-        clearlogoAspectConstraint = titleLink.logoView.heightAnchor.constraint(
-            equalTo: titleLink.logoView.widthAnchor,
-            multiplier: image.size.height / max(image.size.width, 1)
-        )
-        clearlogoAspectConstraint?.priority = UILayoutPriority(999)
-        clearlogoAspectConstraint?.isActive = true
-        titleLink.logoView.isHidden = false
-        titleLink.titleLabel.isHidden = true
+        UIView.performWithoutAnimation {
+            clearlogoAspectConstraint?.isActive = false
+            clearlogoAspectConstraint = titleLink.logoView.heightAnchor.constraint(
+                equalTo: titleLink.logoView.widthAnchor,
+                multiplier: image.size.height / max(image.size.width, 1)
+            )
+            clearlogoAspectConstraint?.priority = UILayoutPriority(999)
+            clearlogoAspectConstraint?.isActive = true
+            titleLink.logoView.isHidden = false
+            titleLink.titleLabel.isHidden = true
+            settleFeaturedLayout()
+        }
+        // Only the image uses interface's load-in animation; the surrounding grid never slides.
         LoadIn.show(image, in: titleLink.logoView, blurred: blurred)
     }
 
