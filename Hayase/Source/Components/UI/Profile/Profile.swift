@@ -160,7 +160,7 @@ private enum ProfileAvatarImageStore {
     }
 }
 
-/// A row of overlapping avatars (`-space-x-1`), each placed by frame. It is a plain view, not a
+/// A row of overlapping, fixed-size avatars (`-space-x-1`). It is a plain view, not a
 /// `UIStackView`: a stack view's layer is a `CATransformLayer`, which does not flatten its
 /// sublayers, and avatars that overlap there are not guaranteed to be painted in order, so all but
 /// one of them could be left hidden behind the ring of the last.
@@ -220,7 +220,7 @@ final class FollowerAvatarStackView: UIView {
         self.overlap = overlap
         self.cutoutBorder = cutoutBorder
         isHidden = visibleUsers.isEmpty
-        visibleUsers.forEach { user in
+        for (index, user) in visibleUsers.enumerated() {
             let button = ProfileButton(user: user,
                                        avatarSize: avatarSize,
                                        ringWidth: ringWidth,
@@ -228,8 +228,19 @@ final class FollowerAvatarStackView: UIView {
                                        imageInset: 0,
                                        toastAppearance: toastAppearance,
                                        detailFetcher: detailFetcher)
+            button.translatesAutoresizingMaskIntoConstraints = false
             buttons.append(button)
             addSubview(button)
+            // Avatar.Root is `size-8 shrink-0` (or the caller's explicit size). Its descendants
+            // use Auto Layout too: keep one sizing authority, even during background/resume
+            // layout passes, instead of letting them solve against a stale autoresizing frame.
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: avatarSize),
+                button.heightAnchor.constraint(equalToConstant: avatarSize),
+                button.leadingAnchor.constraint(equalTo: leadingAnchor,
+                                                constant: CGFloat(index) * (avatarSize - overlap)),
+                button.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ])
         }
         invalidateIntrinsicContentSize()
         setNeedsLayout()
@@ -246,10 +257,7 @@ final class FollowerAvatarStackView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let step = avatarSize - overlap
-        let y = (bounds.height - avatarSize) / 2
         for (index, button) in buttons.enumerated() {
-            button.frame = CGRect(x: CGFloat(index) * step, y: y, width: avatarSize, height: avatarSize)
             guard let border = cutoutBorder, index < buttons.count - 1 else {
                 button.layer.mask = nil
                 continue
