@@ -26,8 +26,8 @@ interface's default dark palette rather than implementing other themes.
 | Desktop/tablet | Width 356; top/right `max(32, safe-area)` | Same logical point geometry |
 | Compact | Logical viewport <=600: margins 16, top 20, width viewport−32 | Same breakpoint, independent of device idiom |
 | UI scale | Toasts inherit the mobile scaled viewport | Host scales its logical viewport and safe-area coordinates, observes UI-scale changes |
-| Card | Padding 16 + border 1, radius 8; Tailwind `shadow-lg` | Two shadow layers with matching offsets/blur/spread and black/10 alpha |
-| Colors | Background black; foreground 98%; description 50%; border 10% | Existing `HayaseTheme` tokens; no rich red/green backgrounds |
+| Card | Padding 16 + border 1, radius 8; Tailwind `shadow-lg` | Border hidden by explicit user request; 1px layout allowance retained. Radius and both shadow layers unchanged |
+| Colors | Background black; foreground 98%; description 50%; border 10% | Existing `HayaseTheme` tokens; no rich red/green backgrounds; card border not drawn |
 | Title/description | System UI 13 medium / 19.5 and 13 regular / 18.2; gap 2 | Shared `CSSText` line-box/baseline conversion; gap only when both exist |
 | Whitespace | Title normal; description pre-line; long text wraps | Titles collapse whitespace; descriptions retain line breaks, not repeated horizontal whitespace |
 | Icons | Filled error/success SVG20, even-odd paths, 16px slot with negative margins | Exact upstream paths rendered once through shared SVG parser; matching placement/tint |

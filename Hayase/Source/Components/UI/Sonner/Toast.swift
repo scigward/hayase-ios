@@ -123,8 +123,9 @@ final class ErrorToastCardView: UIView {
         super.init(frame: .zero)
         backgroundColor = UIColor.HayaseTheme.background
         layer.cornerRadius = 8
-        layer.borderWidth = 1
-        layer.borderColor = UIColor.HayaseTheme.border.cgColor
+        // User-requested exception: hide the card border, but retain Sonner's 1px
+        // layout allowance in the metrics below so size and spacing stay unchanged.
+        layer.borderWidth = 0
         // interface overrides Sonner's shadow with Tailwind shadow-lg.
         layer.shadowColor = UIColor.black.cgColor
         layer.shadowOpacity = 0.1
