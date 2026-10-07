@@ -510,6 +510,9 @@ class Exporter:
                  "-Xllvm", "-aarch64-use-tbi", "-Xfrontend", "-enable-objc-interop",
                  "-sdk", "$(SDKROOT)", "-resource-dir", "$(BSROOT)/swift",
                  "-module-cache-path", "$(BSROOT)/ModuleCache", "-parse-as-library", "-O"]
+        # Nyxian copies legacy Swift driver jobs without filling their temporary
+        # file lists. Keep source and object paths inline, including large targets.
+        swift.extend(["-driver-filelist-threshold", "2147483647"])
         config = {
             "NXProjectFormat": "NXAvixR2", "NXProjectScheme": "Application",
             "NXExecutable": "Hayase", "NXDisplayName": "Hayase", "NXOrganizationPrefix": "app",

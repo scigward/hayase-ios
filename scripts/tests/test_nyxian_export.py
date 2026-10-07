@@ -519,6 +519,53 @@ class ExportContractTests(unittest.TestCase):
         self.assertTrue((module / self.fixture.interface.name).exists())
         self.assertFalse((module / self.fixture.serialized_module.name).exists())
 
+    def test_large_project_disables_unpopulated_nyxian_driver_filelists(self):
+        # Exceed Swift's legacy 128-input threshold with Hayase's current size.
+        additional = [self.fixture.write(self.fixture.repo / f"Hayase/Source/File {index}.swift",
+                                         f"struct Fixture{index} {{}}\n") for index in range(287)]
+        self.fixture.source_list.write_text(self.fixture.source_list.read_text()
+                                            + "".join(path.as_posix() + "\n" for path in additional))
+        exporter, config = self.fixture.export()
+        self.assertEqual(len(exporter.source_paths), 289)
+        flags = config["NXSwiftFlags"]
+        self.assertEqual(EXPORT.option_values(flags, "-driver-filelist-threshold"), ["2147483647"])
+        self.assertFalse(any(arg in {"-filelist", "-primary-filelist", "-output-filelist",
+                                     "-supplementary-output-file-map"} for arg in flags))
+        archive = self.fixture.root / "large-export.zip"
+        EXPORT.zip_project(self.fixture.project, archive)
+        with zipfile.ZipFile(archive) as zipped:
+            persisted = plistlib.loads(zipped.read("Hayase/Config/Project.plist"))
+            self.assertEqual(persisted["NXSwiftFlags"], flags)
+            self.assertEqual(sum(name.endswith(".swift") and "/Config/" not in name
+                                 for name in zipped.namelist()), 289)
+
+    def test_smoke_test_preserves_filelist_threshold_and_inline_source_paths(self):
+        exporter, config = self.fixture.export()
+        output = self.fixture.root / "smoke output"
+        output.mkdir()
+        runtime = str(self.fixture.root / "toolchain/lib/swift")
+
+        def environment(*args):
+            if args == ("xcrun", "--sdk", "iphoneos", "--show-sdk-path"):
+                return str(self.fixture.sdk)
+            if args == ("xcrun", "swiftc", "-print-target-info"):
+                return json.dumps({"paths": {"runtimeResourcePath": runtime}})
+            raise AssertionError("Unexpected toolchain query: " + repr(args))
+
+        with patch.object(EXPORT, "run", side_effect=environment), \
+                patch.object(EXPORT.subprocess, "run") as compiler:
+            EXPORT.smoke_test(exporter, config, output)
+        compiler.assert_called_once()
+        args = compiler.call_args.args[0]
+        self.assertEqual(args[:2], ["xcrun", "swiftc"])
+        self.assertEqual(EXPORT.option_values(args, "-driver-filelist-threshold"), ["2147483647"])
+        for source in exporter.source_paths:
+            self.assertEqual(args.count(str(exporter.project / source)), 1)
+        self.assertIn(runtime, args)
+        self.assertIn(str(output / "smoke-module-cache"), args)
+        self.assertFalse(any("$(" in arg for arg in args))
+        self.assertTrue(compiler.call_args.kwargs["check"])
+
     def test_zip_has_exactly_one_project_root_and_valid_config(self):
         self.fixture.export()
         archive = self.fixture.root / "Hayase-Nyxian-Source.zip"
@@ -529,6 +576,8 @@ class ExportContractTests(unittest.TestCase):
             config = plistlib.loads(zipped.read("Hayase/Config/Project.plist"))
             self.assertEqual(config["NXProjectFormat"], "NXAvixR2")
             self.assertEqual(config["NXProjectScheme"], "Application")
+            self.assertEqual(EXPORT.option_values(config["NXSwiftFlags"], "-driver-filelist-threshold"),
+                             ["2147483647"])
             self.assertNotIn("Hayase/Resources/Hayase", zipped.namelist())
 
     def test_missing_framework_fails_instead_of_silently_creating_incomplete_archive(self):
