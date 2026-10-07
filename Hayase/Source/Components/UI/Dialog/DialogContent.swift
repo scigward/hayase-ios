@@ -309,38 +309,6 @@ final class SettingsDialogFooter: UIStackView, SettingsResponsiveView {
     }
 }
 
-// Non-blocking errors preserve the source toast interaction; no alert interrupts editing.
-enum SettingsToast {
-    static func show(_ message: String, in view: UIView) {
-        let label = SettingsTypography.label(message, size: 13, lineHeight: 20)
-        label.backgroundColor = UIColor.HayaseTheme.background
-        label.layer.borderWidth = 1
-        label.layer.borderColor = UIColor.HayaseTheme.border.cgColor
-        label.layer.cornerRadius = 8
-        let container = UIView()
-        container.backgroundColor = UIColor.HayaseTheme.background
-        container.layer.cornerRadius = 8
-        container.layer.borderWidth = 1
-        container.layer.borderColor = UIColor.HayaseTheme.border.cgColor
-        label.layer.borderWidth = 0
-        container.translatesAutoresizingMaskIntoConstraints = false
-        label.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(label)
-        view.addSubview(container)
-        NSLayoutConstraint.activate([
-            container.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
-            container.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -24),
-            container.widthAnchor.constraint(lessThanOrEqualToConstant: 356),
-            container.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 16),
-            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
-        ])
-        UIAccessibility.post(notification: .announcement, argument: message)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak container] in container?.removeFromSuperview() }
-    }
-}
 
 // MARK: - HayaseCloseButton
 

@@ -206,11 +206,12 @@ final class FollowerAvatarStackView: UIView {
                    ringWidth: CGFloat = 4,
                    ringColor: UIColor = UIColor.HayaseTheme.background,
                    overlap: CGFloat = 4, cutoutBorder: CGFloat? = nil,
+                   toastAppearance: Bool = false,
                    detailFetcher: ((Int, @escaping (AniListUserSummary?) -> Void) -> Void)? = nil) {
         let visibleUsers = users.filter { !$0.name.isEmpty }
         // A page that shows its cache and then its network answer asks twice for the same
         // followers; a keyed `{#each}` keeps the avatars it already has, so this does too.
-        let key = ([String(describing: avatarSize), String(describing: overlap)]
+        let key = ([String(describing: avatarSize), String(describing: overlap), String(toastAppearance)]
             + visibleUsers.map { "\($0.id)|\($0.name)|\($0.avatarURL ?? "")" }).joined(separator: ",")
         if key == shownKey, !buttons.isEmpty { return }
         reset()
@@ -225,6 +226,7 @@ final class FollowerAvatarStackView: UIView {
                                        ringWidth: ringWidth,
                                        ringColor: ringColor,
                                        imageInset: 0,
+                                       toastAppearance: toastAppearance,
                                        detailFetcher: detailFetcher)
             buttons.append(button)
             addSubview(button)
@@ -284,9 +286,10 @@ private final class AvatarCutoutLayer: CALayer {
     }
 }
 
-private final class ProfileButton: UIControl {
+private final class ProfileButton: UIControl, ActiveElementObserver {
     private let user: AniListUserSummary
     private let avatarView: ProfileAvatarView
+    private let toastAppearance: Bool
     private let detailFetcher: ((Int, @escaping (AniListUserSummary?) -> Void) -> Void)?
 
     init(user: AniListUserSummary,
@@ -294,19 +297,34 @@ private final class ProfileButton: UIControl {
          ringWidth: CGFloat,
          ringColor: UIColor,
          imageInset: CGFloat = 0,
+         toastAppearance: Bool = false,
          detailFetcher: ((Int, @escaping (AniListUserSummary?) -> Void) -> Void)? = nil) {
         self.user = user
         self.detailFetcher = detailFetcher
+        self.toastAppearance = toastAppearance
         self.avatarView = ProfileAvatarView(user: user,
                                             avatarSize: avatarSize,
                                             ringWidth: ringWidth,
-                                            ringColor: ringColor)
+                                            ringColor: ringColor,
+                                            toastAppearance: toastAppearance)
         super.init(frame: .zero)
         setup(imageInset: imageInset)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override var canBecomeFocused: Bool { toastAppearance || super.canBecomeFocused }
+
+    override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+        super.didUpdateFocus(in: context, with: coordinator)
+        activeElementDidChange()
+    }
+
+    func activeElementDidChange() {
+        guard toastAppearance else { return }
+        avatarView.setToastFocused(isActiveElement)
     }
 
     private func setup(imageInset: CGFloat) {
@@ -368,15 +386,19 @@ private final class ProfileAvatarView: UIView {
     private let ringLayer = CAShapeLayer()
     private let ringWidth: CGFloat
     private let ringColor: UIColor
+    private let toastAppearance: Bool
+    private var toastFocused = false
 
     init(user: AniListUserSummary,
          avatarSize: CGFloat,
          ringWidth: CGFloat,
-         ringColor: UIColor) {
+         ringColor: UIColor,
+         toastAppearance: Bool = false) {
         self.user = user
         self.avatarSize = avatarSize
         self.ringWidth = ringWidth
         self.ringColor = ringColor
+        self.toastAppearance = toastAppearance
         super.init(frame: .zero)
         layer.cornerRadius = avatarSize / 2
         setup()
@@ -393,10 +415,20 @@ private final class ProfileAvatarView: UIView {
         layer.cornerRadius = radius
         imageView.layer.cornerRadius = radius
         skeletonView.layer.cornerRadius = radius
+        if toastAppearance { fallbackLabel.layer.cornerRadius = radius }
 
         ringLayer.isHidden = ringWidth <= 0
-        ringLayer.fillColor = ringColor.cgColor
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        ringLayer.fillColor = (toastAppearance && toastFocused ? UIColor.HayaseTheme.foreground : ringColor).cgColor
+        CATransaction.commit()
         ringLayer.path = UIBezierPath(ovalIn: bounds.insetBy(dx: -ringWidth, dy: -ringWidth)).cgPath
+    }
+
+    func setToastFocused(_ focused: Bool) {
+        guard toastAppearance, toastFocused != focused else { return }
+        toastFocused = focused
+        setNeedsLayout()
     }
 
     private func setup() {
@@ -413,11 +445,21 @@ private final class ProfileAvatarView: UIView {
         addSubview(imageView)
 
         fallbackLabel.text = user.name
-        fallbackLabel.font = .nunito(ofSize: 8, weight: .bold)
+        fallbackLabel.font = toastAppearance ? .systemFont(ofSize: 16) : .nunito(ofSize: 8, weight: .bold)
         fallbackLabel.textColor = UIColor.HayaseTheme.foreground
         fallbackLabel.textAlignment = .center
-        fallbackLabel.adjustsFontSizeToFitWidth = true
-        fallbackLabel.minimumScaleFactor = 0.35
+        if toastAppearance {
+            // Avatar.Fallback inherits Sonner's system font and 1.5 line height.
+            // It fills the clipped circular avatar, without shrinking names to fit.
+            fallbackLabel.attributedText = CSSText.string(SonnerText.normal(user.name), font: .systemFont(ofSize: 16),
+                color: UIColor.HayaseTheme.foreground, lineHeight: 24, alignment: .center, lineBreak: .byWordWrapping)
+            fallbackLabel.numberOfLines = 0
+            fallbackLabel.backgroundColor = UIColor.HayaseTheme.muted
+            fallbackLabel.layer.masksToBounds = true
+        } else {
+            fallbackLabel.adjustsFontSizeToFitWidth = true
+            fallbackLabel.minimumScaleFactor = 0.35
+        }
         fallbackLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(fallbackLabel)
 
@@ -425,16 +467,17 @@ private final class ProfileAvatarView: UIView {
         skeletonView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(skeletonView)
 
+        let fallbackInset: CGFloat = toastAppearance ? 0 : 2
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: topAnchor),
             imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
             imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            fallbackLabel.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            fallbackLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            fallbackLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
-            fallbackLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+            fallbackLabel.topAnchor.constraint(equalTo: topAnchor, constant: fallbackInset),
+            fallbackLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: fallbackInset),
+            fallbackLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -fallbackInset),
+            fallbackLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -fallbackInset),
 
             skeletonView.topAnchor.constraint(equalTo: topAnchor),
             skeletonView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -504,6 +547,10 @@ private final class ProfileAvatarView: UIView {
     }
 
     private func startSkeleton() {
+        guard !toastAppearance else {
+            skeletonView.isHidden = true
+            return
+        }
         skeletonView.isHidden = false
         HayaseSkeleton.startPulse(on: skeletonView)
     }
@@ -992,7 +1039,22 @@ private extension UIResponder {
             if let viewController = current as? UIViewController { return viewController }
             responder = current.next
         }
-        return nil
+        // Toasts sit directly on the window, outside a controller's responder chain.
+        guard let view = self as? UIView, var presenter = view.window?.rootViewController else { return nil }
+        while true {
+            if let presented = presenter.presentedViewController {
+                guard !presented.isBeingDismissed else { return nil }
+                presenter = presented
+            } else if let navigation = presenter as? UINavigationController,
+                      let visible = navigation.visibleViewController {
+                presenter = visible
+            } else if let tabs = presenter as? UITabBarController,
+                      let selected = tabs.selectedViewController {
+                presenter = selected
+            } else {
+                return presenter.isBeingPresented || presenter.isBeingDismissed ? nil : presenter
+            }
+        }
     }
 }
 

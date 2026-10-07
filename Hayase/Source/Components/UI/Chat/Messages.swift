@@ -262,30 +262,36 @@ final class ChatBubbleView: UIView {
         nil
     }
 
-    private static func attributes() -> [NSAttributedString.Key: Any] {
+    private static func attributes(font: UIFont, cssLineBox: Bool) -> [NSAttributedString.Key: Any] {
+        if cssLineBox {
+            return CSSText.attributes(font: font, color: UIColor.HayaseTheme.foreground,
+                                      lineHeight: 16, lineBreak: .byWordWrapping)
+        }
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = 16   // text-xs
         paragraph.maximumLineHeight = 16
         return [
-            .font: UIFont.nunito(ofSize: 12),
+            .font: font,
             .foregroundColor: UIColor.HayaseTheme.foreground,
             .paragraphStyle: paragraph,
         ]
     }
 
-    func configure(text: String, background: UIColor, corners: CACornerMask) {
-        textView.attributedText = NSAttributedString(string: text, attributes: Self.attributes())
+    func configure(text: String, background: UIColor, corners: CACornerMask,
+                   font: UIFont = .nunito(ofSize: 12), cssLineBox: Bool = false) {
+        textView.attributedText = NSAttributedString(string: text, attributes: Self.attributes(font: font, cssLineBox: cssLineBox))
         backgroundColor = background
         layer.maskedCorners = corners
     }
 
     /// The size a bubble takes for `text` when it can be at most `maxWidth` wide, for callers that
     /// lay out by hand.
-    static func size(for text: String, maxWidth: CGFloat) -> CGSize {
+    static func size(for text: String, maxWidth: CGFloat,
+                     font: UIFont = .nunito(ofSize: 12), cssLineBox: Bool = false) -> CGSize {
         let bounds = (text as NSString).boundingRect(
             with: CGSize(width: max(0, maxWidth - 24), height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: attributes(), context: nil)
+            attributes: attributes(font: font, cssLineBox: cssLineBox), context: nil)
         return CGSize(width: ceil(bounds.width) + 24, height: ceil(bounds.height) + 16)
     }
 }

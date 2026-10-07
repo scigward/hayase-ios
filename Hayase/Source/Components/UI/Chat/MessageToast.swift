@@ -13,6 +13,10 @@ final class ChatMessageToastCardView: UIView, ToastCardView {
     var onDismiss: ((Bool) -> Void)?
 
     private static let avatarSize: CGFloat = 32   // size-8
+    /// The custom component inherits Sonner's system UI font rather than the page's Nunito.
+    private static let bubbleFont = UIFont.systemFont(ofSize: 12)
+    private static let nameLineHeight: CGFloat = 20   // text-sm
+    private static let timeLineHeight: CGFloat = 16.25   // 10px * leading-relaxed (1.625)
     /// svelte-sonner's default toast duration.
     private static let duration: TimeInterval = 4
 
@@ -25,25 +29,32 @@ final class ChatMessageToastCardView: UIView, ToastCardView {
     private var startedAt: Date?
     private var remaining = ChatMessageToastCardView.duration
     private var dismissing = false
+    private var timerPaused = false
+    private var swipeGesture: SonnerToastGesture?
 
     init(message: ChatMessageContent) {
         self.message = message
         super.init(frame: .zero)
 
-        nameLabel.font = .nunito(ofSize: 14, weight: .bold)
+        nameLabel.font = .systemFont(ofSize: 14, weight: .bold)
         nameLabel.textColor = UIColor.HayaseTheme.foreground
-        nameLabel.text = message.name
-        timeLabel.font = .nunito(ofSize: 10)
+        nameLabel.attributedText = CSSText.string(SonnerText.normal(message.name), font: nameLabel.font,
+            color: UIColor.HayaseTheme.foreground, lineHeight: Self.nameLineHeight, lineBreak: .byWordWrapping)
+        nameLabel.numberOfLines = 0
+        timeLabel.font = .systemFont(ofSize: 10)
         timeLabel.textColor = UIColor.HayaseTheme.mutedForeground
-        timeLabel.text = ChatTime.string(for: message.date)
+        timeLabel.attributedText = CSSText.string(SonnerText.normal(ChatTime.string(for: message.date)), font: timeLabel.font,
+            color: UIColor.HayaseTheme.mutedForeground, lineHeight: Self.timeLineHeight, lineBreak: .byWordWrapping)
+        timeLabel.numberOfLines = 0
         // rounded-t-xl rounded-l-xl
         bubble.configure(text: message.text, background: UIColor.HayaseTheme.muted,
-                         corners: [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner])
+                         corners: [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner],
+                         font: Self.bubbleFont, cssLineBox: true)
 
         let summary = AniListUserSummary(id: Int(message.userID) ?? 0, name: message.name, avatarURL: message.avatarURL)
         let isGuest = message.isGuest
         profile.configure(users: [summary], avatarSize: Self.avatarSize, ringWidth: 4,
-                          ringColor: UIColor.HayaseTheme.background) { id, completion in
+                          ringColor: UIColor.HayaseTheme.background, toastAppearance: true) { id, completion in
             guard !isGuest else {
                 completion(nil)
                 return
@@ -54,8 +65,7 @@ final class ChatMessageToastCardView: UIView, ToastCardView {
         }
         [profile, nameLabel, timeLabel, bubble].forEach(addSubview)
 
-        addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(pan(_:))))
-        addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hover(_:))))
+        swipeGesture = SonnerToastGesture(card: self)
         isAccessibilityElement = true
         accessibilityLabel = message.name + "\n" + message.text
     }
@@ -72,18 +82,57 @@ final class ChatMessageToastCardView: UIView, ToastCardView {
     /// at most `100% - 100px` of what is left of it.
     private struct Metrics {
         let bubble: CGSize
-        let nameWidth: CGFloat
-        let timeWidth: CGFloat
+        let name: CGSize
+        let time: CGSize
+        let headerHeight: CGFloat
         let height: CGFloat
     }
 
     private func metrics(for width: CGFloat) -> Metrics {
         let column = width - Self.avatarSize - 16
-        let bubble = ChatBubbleView.size(for: message.text, maxWidth: max(0, column - 100))
-        let nameWidth = ceil(nameLabel.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 20)).width)
-        let timeWidth = ceil(timeLabel.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 20)).width)
-        // header 20 + pb-1 4, bubble, mb-1 4
-        return Metrics(bubble: bubble, nameWidth: nameWidth, timeWidth: timeWidth, height: 24 + bubble.height + 4)
+        let bubble = ChatBubbleView.size(for: message.text, maxWidth: max(0, column - 100),
+                                        font: Self.bubbleFont, cssLineBox: true)
+        let nameWidth = nameLabel.attributedText?.size().width ?? 0
+        let timeWidth = timeLabel.attributedText?.size().width ?? 0
+        // Header px-1 (8) and the time's pl-2 (8) do not shrink; both text items do.
+        let available = max(0, column - 16)
+        let intrinsic = nameWidth + timeWidth
+        let shrink = intrinsic > 0 ? min(1, available / intrinsic) : 1
+        var nameSpace = nameWidth * shrink
+        var timeSpace = timeWidth * shrink
+        // overflow-wrap:anywhere lowers flex min-content widths to one unbroken grapheme.
+        // Flex freezes a text item at that minimum and gives the remaining width to its sibling.
+        let nameMinimum = Self.minimumContentWidth(of: nameLabel)
+        let timeMinimum = Self.minimumContentWidth(of: timeLabel)
+        if available < nameMinimum + timeMinimum {
+            nameSpace = nameMinimum
+            timeSpace = timeMinimum
+        } else if nameSpace < nameMinimum {
+            nameSpace = nameMinimum
+            timeSpace = min(timeWidth, available - nameMinimum)
+        } else if timeSpace < timeMinimum {
+            timeSpace = timeMinimum
+            nameSpace = min(nameWidth, available - timeMinimum)
+        }
+        let name = Self.size(of: nameLabel, width: nameSpace, lineHeight: Self.nameLineHeight)
+        let time = Self.size(of: timeLabel, width: timeSpace, lineHeight: Self.timeLineHeight)
+        let headerHeight = max(name.height, time.height)
+        return Metrics(bubble: bubble, name: name, time: time, headerHeight: headerHeight,
+                       height: max(Self.avatarSize, headerHeight + 4 + bubble.height + 4))
+    }
+
+    private static func minimumContentWidth(of label: UILabel) -> CGFloat {
+        guard let text = label.text, let font = label.font else { return 0 }
+        return text.map { (String($0) as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+    }
+
+    private static func size(of label: UILabel, width: CGFloat, lineHeight: CGFloat) -> CGSize {
+        guard let text = label.attributedText, text.length > 0 else { return .zero }
+        let width = max(1, width)
+        let measured = label.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
+        // UILabel rounds its fitted height; retain the fractional CSS line boxes themselves.
+        let lines = max(1, (measured.height / lineHeight).rounded())
+        return CGSize(width: width, height: lines * lineHeight)
     }
 
     func height(for width: CGFloat) -> CGFloat {
@@ -97,15 +146,18 @@ final class ChatMessageToastCardView: UIView, ToastCardView {
         let columnRight = bounds.width - Self.avatarSize - 8
         // px-1, then the time after pl-2 of the name
         let timeRight = columnRight - 4
-        timeLabel.frame = CGRect(x: timeRight - m.timeWidth, y: 2, width: m.timeWidth, height: 16)
-        nameLabel.frame = CGRect(x: timeLabel.frame.minX - 8 - m.nameWidth, y: 0, width: m.nameWidth, height: 20)
-        bubble.frame = CGRect(x: columnRight - m.bubble.width, y: 24, width: m.bubble.width, height: m.bubble.height)
+        timeLabel.frame = CGRect(x: timeRight - m.time.width, y: (m.headerHeight - m.time.height) / 2,
+                                 width: m.time.width, height: m.time.height)
+        nameLabel.frame = CGRect(x: timeLabel.frame.minX - 8 - m.name.width, y: (m.headerHeight - m.name.height) / 2,
+                                 width: m.name.width, height: m.name.height)
+        bubble.frame = CGRect(x: columnRight - m.bubble.width, y: m.headerHeight + 4,
+                              width: m.bubble.width, height: m.bubble.height)
     }
 
     // MARK: - Lifetime
 
     func startTimer() {
-        guard !dismissing, timer == nil else { return }
+        guard !timerPaused, !dismissing, timer == nil else { return }
         startedAt = Date()
         let timer = Timer(timeInterval: max(0.01, remaining), repeats: false) { [weak self] _ in self?.dismiss(swiped: false) }
         self.timer = timer
@@ -119,6 +171,11 @@ final class ChatMessageToastCardView: UIView, ToastCardView {
         timer = nil
     }
 
+    func setTimerPaused(_ paused: Bool) {
+        timerPaused = paused
+        if paused { pauseTimer() } else { startTimer() }
+    }
+
     func dismiss(swiped: Bool) {
         guard !dismissing else { return }
         dismissing = true
@@ -126,29 +183,6 @@ final class ChatMessageToastCardView: UIView, ToastCardView {
         onDismiss?(swiped)
     }
 
-    @objc private func hover(_ gesture: UIHoverGestureRecognizer) {
-        if gesture.state == .began { pauseTimer() }
-        else if gesture.state == .ended || gesture.state == .cancelled { startTimer() }
-    }
-
-    @objc private func pan(_ gesture: UIPanGestureRecognizer) {
-        let amount = min(0, gesture.translation(in: superview).y)
-        switch gesture.state {
-        case .began:
-            pauseTimer()
-        case .changed:
-            transform = CGAffineTransform(translationX: 0, y: amount)
-        case .ended, .cancelled:
-            if gesture.state == .ended && amount <= -20 {
-                dismiss(swiped: true)
-            } else {
-                UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.4) { self.transform = .identity }
-                startTimer()
-            }
-        default:
-            break
-        }
-    }
 }
 
 /// `date.toLocaleTimeString()`: the time of day with seconds, as the device formats it.
