@@ -1,10 +1,12 @@
 """Portable contract tests for the Nyxian export (no Apple toolchain required)."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import plistlib
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -179,6 +181,80 @@ class ExportContractTests(unittest.TestCase):
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
 
+    def alias_paths(self):
+        # Reproduce macOS /var -> /private/var with a real directory alias,
+        # including on Windows where junctions do not require symlink privilege.
+        root = self.fixture.root
+        alias = root.with_name(root.name + "-alias")
+        if os.name == "nt":
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(alias), str(root.resolve())],
+                           check=True, capture_output=True)
+            self.addCleanup(alias.rmdir)  # Remove only the junction, not its target.
+        else:
+            alias.symlink_to(root.resolve(), target_is_directory=True)
+            self.addCleanup(alias.unlink)
+        self.assertEqual(alias.resolve(), root.resolve())
+        self.assertNotEqual(alias, alias.resolve())
+        return lambda path: alias / path.relative_to(root)
+
+    def test_directory_aliases_export_sources_generated_code_and_import_metadata(self):
+        alias = self.alias_paths()
+        generated = self.fixture.write(self.fixture.target_temp / "DerivedSources/Generated.swift", "import UIKit\n")
+        self.fixture.source_list.write_text(self.fixture.source_list.read_text() + generated.as_posix() + "\n")
+        settings = dict(self.fixture.settings)
+        for key in ("TARGET_BUILD_DIR", "TARGET_TEMP_DIR", "SDKROOT"):
+            settings[key] = str(alias(Path(settings[key])))
+        binary = self.fixture.app / "Hayase"
+        log = self.fixture.log.replace(str(binary), str(alias(binary)))
+        exporter = EXPORT.Exporter(alias(self.fixture.repo), alias(self.fixture.derived),
+                                   alias(self.fixture.packages), settings, log, alias(self.fixture.project))
+        info = exporter.sources_and_resources()
+        exporter.archive_objects()
+        exporter.frameworks_and_link_flags()
+        exporter.import_metadata()
+        config = exporter.config(info)
+        EXPORT.validate_layout(exporter.project, config, exporter.source_paths)
+        for name in ("repo", "derived", "packages", "project", "products", "target_temp", "sdk"):
+            self.assertEqual(getattr(exporter, name), getattr(self.fixture, name).resolve())
+        self.assertIn(Path("Generated/DerivedSources/Generated.swift"), exporter.source_paths)
+        expected = "$(SRCROOT)/Config/Dependencies/SourcePackages/Clang Helper/include/CThing.h"
+        self.assertEqual(exporter.portable(self.fixture.header), expected)
+        self.assertEqual(exporter.portable(alias(self.fixture.header)), expected)
+        self.assertEqual(exporter.portable(alias(self.fixture.sdk / "usr/lib/libz.tbd")),
+                         "$(SDKROOT)/usr/lib/libz.tbd")
+        archive = self.fixture.root / "aliased-export.zip"
+        EXPORT.zip_project(exporter.project, archive)
+        with zipfile.ZipFile(archive) as zipped:
+            self.assertIn("Hayase/Generated/DerivedSources/Generated.swift", zipped.namelist())
+
+    def test_link_output_matches_physical_path_when_settings_use_alias(self):
+        alias = self.alias_paths()
+        settings = dict(self.fixture.settings, TARGET_BUILD_DIR=str(alias(self.fixture.products)))
+        binary = self.fixture.app / "Hayase"
+        log = self.fixture.log.replace(str(binary), str(binary.resolve()))
+        exporter = EXPORT.Exporter(self.fixture.repo, self.fixture.derived, self.fixture.packages,
+                                   settings, log, self.fixture.project)
+        self.assertEqual(exporter.app, self.fixture.app.resolve())
+        self.assertIn(self.fixture.package_object.resolve(), exporter.inputs)
+
+    def test_force_load_archive_preserves_flag_when_link_operand_uses_alias(self):
+        alias = self.alias_paths()
+        self.fixture.log += " " + shlex.join(["-Xlinker", "-force_load", "-Xlinker",
+                                             str(alias(self.fixture.archive))])
+        _, config = self.fixture.export()
+        flags = config["NXLinkerFlags"]
+        archive = "$(SRCROOT)/Config/Dependencies/Libraries/libAux.a"
+        self.assertEqual(flags[flags.index(archive) - 1], "-force_load")
+
+    def test_relative_compiler_paths_are_resolved_against_checkout_not_process_cwd(self):
+        for path in (self.fixture.source_list, self.fixture.module_map, self.fixture.header.parent):
+            relative = os.path.relpath(path, self.fixture.repo).replace(os.sep, "/")
+            self.fixture.log = self.fixture.log.replace(path.as_posix(), relative)
+        exporter, config = self.fixture.export()
+        self.assertIn(Path("Hayase/Source/App Delegate.swift"), exporter.source_paths)
+        self.assertIn("-I$(SRCROOT)/Config/Dependencies/SourcePackages/Clang Helper/include", config["NXSwiftFlags"])
+        self.assertTrue(any(arg.startswith("-fmodule-map-file=$(SRCROOT)/") for arg in config["NXSwiftFlags"]))
+
     def test_realistic_link_filelist_preserves_paths_with_spaces(self):
         exporter = self.fixture.exporter()
         self.assertEqual(set(exporter.inputs), {
@@ -346,7 +422,7 @@ class ExportContractTests(unittest.TestCase):
     def test_ci_absolute_flags_fail_validation(self):
         exporter, config = self.fixture.export()
         for arg in ("-I/Users/builder/DerivedData", "-F/Applications/Xcode.app/frameworks",
-                    "-fmodule-map-file=/private/tmp/module.modulemap"):
+                    "-fmodule-map-file=/private/tmp/module.modulemap", "-I/var/folders/build/include"):
             with self.subTest(arg=arg):
                 invalid = dict(config, NXSwiftFlags=config["NXSwiftFlags"] + [arg])
                 with self.assertRaisesRegex(ValueError, "CI path leaked"):

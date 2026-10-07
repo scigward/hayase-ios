@@ -41,6 +41,11 @@ def under(path, root):
     return path.resolve().is_relative_to(root.resolve())
 
 
+def resolved_path(path, cwd):
+    path = Path(path)
+    return (path if path.is_absolute() else cwd / path).resolve()
+
+
 def expand_responses(args, cwd, depth=0):
     require(depth < 12, "Recursive Xcode response file")
     result = []
@@ -165,35 +170,39 @@ def make_portable_modules(root):
 
 class Exporter:
     def __init__(self, repo, derived, packages, settings, log, project):
-        self.repo, self.derived, self.packages, self.project = repo, derived, packages, project
+        # macOS spells the same temporary directory /var/... and /private/var/...
+        # in settings and compiler logs. Keep every root in physical coordinates
+        # so containment, relative_to() and staged mappings agree.
+        self.repo, self.derived, self.packages, self.project = (
+            path.resolve() for path in (repo, derived, packages, project))
         self.settings = settings
-        self.products = Path(settings["TARGET_BUILD_DIR"])
-        self.app = self.products / settings["FULL_PRODUCT_NAME"]
-        self.target_temp = Path(settings["TARGET_TEMP_DIR"])
-        self.sdk = Path(settings["SDKROOT"])
-        self.deps = project / "Config/Dependencies"
+        self.products = resolved_path(settings["TARGET_BUILD_DIR"], self.repo)
+        self.app = (self.products / settings["FULL_PRODUCT_NAME"]).resolve()
+        self.target_temp = resolved_path(settings["TARGET_TEMP_DIR"], self.repo)
+        self.sdk = resolved_path(settings["SDKROOT"], self.repo)
+        self.deps = self.project / "Config/Dependencies"
         self.mappings = []
         self.source_paths = []
         self.lib_names = set()
         self.framework_names = set()
-        all_commands = commands(log, repo)
+        all_commands = commands(log, self.repo)
         swift = [c for c in all_commands if Path(c[0]).name == "swiftc"
                  and option_values(c, "-module-name") == ["Hayase"]]
-        binary = str(self.app / settings["EXECUTABLE_NAME"])
+        binary = (self.app / settings["EXECUTABLE_NAME"]).resolve()
         links = [c for c in all_commands if Path(c[0]).name.startswith("clang")
-                 and option_values(c, "-o") == [binary]]
+                 and [resolved_path(value, self.repo) for value in option_values(c, "-o")] == [binary]]
         require(swift and links, "Could not locate Hayase's actual swiftc and final clang link invocations")
         self.swift = swift[-1]
-        self.raw_link, self.inputs = linker_inputs(links[-1], repo)
+        self.raw_link, self.inputs = linker_inputs(links[-1], self.repo)
         self.all_commands = all_commands
         self.framework_paths = search_paths(self.raw_link, "-F") + search_paths(self.swift, "-F")
         self.library_paths = search_paths(self.raw_link, "-L")
-        self.framework_paths = [p if p.is_absolute() else repo / p for p in self.framework_paths]
-        self.library_paths = [p if p.is_absolute() else repo / p for p in self.library_paths]
+        self.framework_paths = [resolved_path(p, self.repo) for p in self.framework_paths]
+        self.library_paths = [resolved_path(p, self.repo) for p in self.library_paths]
         self.nx_link = ["-ObjC", "-rpath", "@executable_path/Frameworks"]
         self.nx_swift = []
         self.xcc = []
-        lockfile = repo / "Hayase.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+        lockfile = self.repo / "Hayase.xcworkspace/xcshareddata/swiftpm/Package.resolved"
         require(lockfile.is_file(), "Missing resolved dependency lockfile")
         self.package_lock = json.loads(lockfile.read_text())
 
@@ -209,7 +218,7 @@ class Exporter:
     def sources_and_resources(self):
         sources = [Path(arg) for arg in self.swift if arg.endswith(".swift")]
         for value in option_values(self.swift, "-filelist"):
-            sources.extend(read_filelist(Path(value), self.repo))
+            sources.extend(read_filelist(resolved_path(value, self.repo), self.repo))
         sources = list(dict.fromkeys((path if path.is_absolute() else self.repo / path).resolve() for path in sources))
         require(sources, "No actual Hayase Swift source inputs")
         for src in sources:
@@ -291,6 +300,7 @@ class Exporter:
 
     def frameworks_and_link_flags(self):
         paired = {"-framework", "-weak_framework", "-reexport_framework", "-lazy_framework"}
+        force_load_paths = {resolved_path(value, self.repo) for value in option_values(self.raw_link, "-force_load")}
         i = 0
         while i < len(self.raw_link):
             arg = self.raw_link[i]
@@ -328,13 +338,13 @@ class Exporter:
             if path.is_absolute() and path.is_file() and any(p.endswith(".framework") for p in path.parts[:-1]):
                 framework = next(p for p in path.parents if p.suffix == ".framework")
                 if not under(framework, self.sdk) and path.name == framework.stem:
-                    if arg in option_values(self.raw_link, "-force_load"):
+                    if path.resolve() in force_load_paths:
                         self.nx_link.append("-force_load")
                     self.nx_link.append(self.stage_framework(framework))
         # Explicit .a paths are not necessarily expressed as -l in Xcode.
         for path in self.inputs:
             if path.suffix == ".a" and not under(path, self.target_temp):
-                flag = "-force_load" if str(path) in option_values(self.raw_link, "-force_load") else None
+                flag = "-force_load" if path in force_load_paths else None
                 if flag:
                     self.nx_link.append(flag)
                 self.nx_link.append(self.stage_library(path))
@@ -382,7 +392,7 @@ class Exporter:
         for command in self.all_commands:
             for arg in command:
                 if arg.startswith("-fmodule-map-file="):
-                    maps.add(Path(arg.partition("=")[2]).resolve())
+                    maps.add(resolved_path(arg.partition("=")[2], self.repo))
         for index, source in enumerate(sorted(maps)):
             if under(source, self.sdk):
                 continue
@@ -431,6 +441,7 @@ class Exporter:
             module_map.write_text(re.sub(r'(?:umbrella(?:\s+header)?|header)\s+"([^"\n]+)"', relocate, text))
         app_xcc = option_values(self.swift, "-Xcc")
         for path in search_paths(app_xcc, "-I") + search_paths(self.swift, "-I"):
+            path = resolved_path(path, self.repo)
             if under(path, self.sdk):
                 self.xcc.append("-I" + self.portable(path))
             elif path.resolve() == self.products.resolve():
@@ -506,7 +517,7 @@ def validate_layout(project, config, sources):
     require(config["NXProjectFormat"] == "NXAvixR2" and config["NXProjectScheme"] == "Application", "Wrong Nyxian project type")
     for key in ("NXSwiftFlags", "NXClangFlags", "NXLinkerFlags"):
         for arg in config[key]:
-            require(not re.search(r"(?:^|=|,-?|-[IFL])/(?:Users|Volumes|Applications|private|tmp)/", arg),
+            require(not re.search(r"(?:^|=|,-?|-[IFL])/(?:Users|Volumes|Applications|private|var|tmp)/", arg),
                     f"CI path leaked into {key}: {arg}")
     for name in RESOURCE_REQUIREMENTS:
         require((project / "Resources" / name).exists(), f"Missing resource {name}")
