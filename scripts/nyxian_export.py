@@ -13,6 +13,7 @@ import plistlib
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import tempfile
 import zipfile
@@ -145,6 +146,11 @@ def copy_tree(src, dst, imports_only=False):
     if src.is_file():
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
+        # SwiftPM checkouts may be read-only. Only our staged copy must be
+        # editable for relocation (and for editing in Nyxian); keep execute bits.
+        mode = dst.stat().st_mode
+        if not mode & stat.S_IWUSR:
+            dst.chmod(mode | stat.S_IWUSR)
         return
     for root, dirs, files in os.walk(src, followlinks=True):
         dirs[:] = sorted(d for d in dirs if d not in {".git", ".build", "_CodeSignature", "__MACOSX"})
@@ -389,6 +395,7 @@ class Exporter:
         # Gather transitive Clang maps from all package Swift invocations, not
         # just direct imports in Hayase's invocation.
         maps = set()
+        module_maps = set((self.deps / "Frameworks").rglob("*.modulemap"))
         for command in self.all_commands:
             for arg in command:
                 if arg.startswith("-fmodule-map-file="):
@@ -408,37 +415,8 @@ class Exporter:
                 copy_tree(source.parent, target, imports_only=True)
                 self.mappings.append((source.parent.resolve(), target))
                 portable = self.portable(source)
+            module_maps.add(self.project / portable.removeprefix("$(SRCROOT)/"))
             self.xcc.extend(["-fmodule-map-file=" + portable])
-        # Relocate absolute modulemap header/umbrella paths. SDK maps remain SDK
-        # maps; no SDK headers copied into the archive.
-        module_maps = list(self.deps.rglob("*.modulemap")) + list((self.project / "Resources/Frameworks").rglob("*.modulemap"))
-        for module_map in module_maps:
-            origin = next((old / module_map.relative_to(new) for old, new in
-                           sorted(self.mappings, key=lambda pair: len(str(pair[1])), reverse=True)
-                           if under(module_map, new)), None)
-            # Embedded runtime metadata is not an import input; unstripped
-            # framework maps in Config are the ones the compiler uses.
-            if origin is None:
-                continue
-            text = module_map.read_text()
-            def relocate(match):
-                value = match.group(1)
-                path = Path(value) if Path(value).is_absolute() else origin.parent / value
-                if not path.exists():
-                    # Framework umbrella headers are resolved in Headers/, not
-                    # the Modules/ directory. Preserve that framework syntax.
-                    framework = next((p for p in origin.parents if p.suffix == ".framework"), None)
-                    if framework and (framework / "Headers" / value).exists():
-                        return match.group(0)
-                require(path.exists(), f"Missing modulemap header/umbrella: {path}")
-                mapped = self.portable(path)
-                require(mapped.startswith("$(SRCROOT)/"), f"Unexpected SDK absolute header in modulemap: {path}")
-                destination = self.project / mapped.removeprefix("$(SRCROOT)/")
-                require(destination.exists(), f"Missing relocated modulemap header: {path}")
-                # Clang does not expand Nyxian variables inside modulemaps.
-                relative = os.path.relpath(destination, module_map.parent).replace(os.sep, "/")
-                return match.group(0).replace('"' + value + '"', '"' + relative + '"')
-            module_map.write_text(re.sub(r'(?:umbrella(?:\s+header)?|header)\s+"([^"\n]+)"', relocate, text))
         app_xcc = option_values(self.swift, "-Xcc")
         for path in search_paths(app_xcc, "-I") + search_paths(self.swift, "-I"):
             path = resolved_path(path, self.repo)
@@ -457,6 +435,21 @@ class Exporter:
                     self.mappings.append((path.resolve(), dest))
                     mapped = self.portable(path)
                 self.xcc.append("-I" + mapped)
+                # Clang can discover this map through -I without an explicit
+                # -fmodule-map-file. Include copies must exist before relocation.
+                directory = self.project / mapped.removeprefix("$(SRCROOT)/")
+                directory.mkdir(parents=True, exist_ok=True)  # Valid -I roots may contain no import metadata.
+                directories = [directory] + [child for child in directory.iterdir() if child.is_dir()]
+                for parent in directories:
+                    module_map = parent / "module.modulemap"
+                    if module_map.is_file():
+                        module_maps.add(module_map)
+        # Clang also loads a public map's optional neighboring private map.
+        module_maps.update(path.with_name("module.private.modulemap") for path in list(module_maps)
+                           if path.name == "module.modulemap" and path.with_name("module.private.modulemap").is_file())
+        # Do not rewrite unrelated maps in package examples/Pods. They are not
+        # compiler inputs and may refer to headers absent from the app build.
+        self.relocate_module_maps(module_maps)
         for arg in app_xcc:
             if arg.startswith("-D"):
                 self.xcc.append(arg)
@@ -478,6 +471,36 @@ class Exporter:
             for name in re.findall(r"-module-link-name\s+(\S+)", text):
                 require(name in self.lib_names or name in self.framework_names,
                         f"Interface requires an unexported library: {name}")
+
+    def relocate_module_maps(self, module_maps):
+        # SDK maps stay in the SDK; unstripped Config frameworks are the compiler
+        # inputs, not the app's stripped embedded runtime copies.
+        for module_map in sorted(module_maps):
+            origin = next((old / module_map.relative_to(new) for old, new in
+                           sorted(self.mappings, key=lambda pair: len(str(pair[1])), reverse=True)
+                           if under(module_map, new)), None)
+            require(origin is not None, f"Unmapped active modulemap: {module_map}")
+            text = module_map.read_text()
+            def relocate(match):
+                value = match.group(1)
+                path = Path(value) if Path(value).is_absolute() else origin.parent / value
+                if not path.exists():
+                    # Framework umbrella headers are resolved in Headers/, not
+                    # the Modules/ directory. Preserve that framework syntax.
+                    framework = next((p for p in origin.parents if p.suffix == ".framework"), None)
+                    if framework and (framework / "Headers" / value).exists():
+                        return match.group(0)
+                require(path.exists(), f"Missing modulemap header/umbrella: {path}")
+                mapped = self.portable(path)
+                require(mapped.startswith("$(SRCROOT)/"), f"Unexpected SDK absolute header in modulemap: {path}")
+                destination = self.project / mapped.removeprefix("$(SRCROOT)/")
+                require(destination.exists(), f"Missing relocated modulemap header: {path}")
+                # Clang does not expand Nyxian variables inside modulemaps.
+                relative = os.path.relpath(destination, module_map.parent).replace(os.sep, "/")
+                return match.group(0).replace('"' + value + '"', '"' + relative + '"')
+            relocated = re.sub(r'(?:umbrella(?:\s+header)?|header)\s+"([^"\n]+)"', relocate, text)
+            if relocated != text:
+                module_map.write_text(relocated)
 
     def config(self, info):
         target = self.settings["IPHONEOS_DEPLOYMENT_TARGET"]

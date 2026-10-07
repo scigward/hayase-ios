@@ -6,6 +6,7 @@ from pathlib import Path
 import plistlib
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -129,6 +130,7 @@ class XcodeFixture:
         ))
         self.archive_calls = []
         self.architecture_checks = []
+        self.tracked_files = ["include/CThing.h", "SourcePackage.swift"]
 
     @staticmethod
     def write(path, value):
@@ -161,7 +163,7 @@ class XcodeFixture:
             self.architecture_checks.append(Path(args[2]))
             return ""
         if args[:2] == ["git", "-C"] and args[-2:] == ["ls-files", "-z"]:
-            return "include/CThing.h\0SourcePackage.swift\0"
+            return "\0".join(self.tracked_files) + "\0"
         raise AssertionError("Unexpected subprocess: " + repr(args))
 
     def exporter(self):
@@ -377,6 +379,117 @@ class ExportContractTests(unittest.TestCase):
         relative_header = text.split('header "', 1)[1].split('"', 1)[0]
         self.assertTrue((maps[0].parent / relative_header).resolve().is_file())
         self.assertTrue(any(arg.startswith("-fmodule-map-file=$(SRCROOT)/") for arg in config["NXSwiftFlags"]))
+
+    def test_readonly_inputs_are_writable_only_in_staged_export(self):
+        source_map = self.fixture.write(self.fixture.header.parent / "module.modulemap",
+                                       self.fixture.module_map.read_text())
+        self.fixture.tracked_files.append("include/module.modulemap")
+        self.fixture.log = self.fixture.log.replace(self.fixture.module_map.as_posix(), source_map.as_posix())
+        originals = {path: (path.read_bytes(), stat.S_IMODE(path.stat().st_mode))
+                     for path in (source_map, self.fixture.header, self.fixture.source)}
+        for path, (_, mode) in originals.items():
+            self.addCleanup(path.chmod, mode)
+            path.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+        exporter, _ = self.fixture.export()
+        for path, (contents, _) in originals.items():
+            self.assertEqual(path.read_bytes(), contents)
+            self.assertFalse(path.stat().st_mode & stat.S_IWUSR)
+        staged_map = exporter.deps / "SourcePackages/Clang Helper/include/module.modulemap"
+        self.assertTrue(staged_map.stat().st_mode & stat.S_IWUSR)
+        self.assertNotIn(self.fixture.header.as_posix(), staged_map.read_text())
+        self.assertTrue((exporter.project / "Hayase/Source/App Delegate.swift").stat().st_mode & stat.S_IWUSR)
+
+    def test_copying_readonly_executable_keeps_execution_bits(self):
+        source = self.fixture.write(self.fixture.root / "tool", "tool binary")
+        mode = stat.S_IMODE(source.stat().st_mode)
+        self.addCleanup(source.chmod, mode)
+        source.chmod(stat.S_IRUSR | stat.S_IXUSR)
+        original = stat.S_IMODE(source.stat().st_mode)
+        dest = self.fixture.root / "copied tool"
+        self.addCleanup(lambda: dest.chmod(mode) if dest.exists() else None)
+        EXPORT.copy_tree(source, dest)
+        self.assertTrue(dest.stat().st_mode & stat.S_IWUSR)
+        self.assertEqual(dest.stat().st_mode & stat.S_IXUSR, original & stat.S_IXUSR)
+        if os.name != "nt":  # Windows chmod only supports its read-only attribute.
+            self.assertEqual(stat.S_IMODE(dest.stat().st_mode), original | stat.S_IWUSR)
+        self.assertEqual(stat.S_IMODE(source.stat().st_mode), original)
+
+    def test_unused_package_example_modulemap_is_not_rewritten(self):
+        entry = "examples/Pods/Target Support Files/Example.modulemap"
+        contents = 'module Example { umbrella header "missing-example-only.h" export * }\n'
+        example = self.fixture.write(self.fixture.package / entry, contents)
+        mode = stat.S_IMODE(example.stat().st_mode)
+        self.addCleanup(example.chmod, mode)
+        example.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+        self.fixture.tracked_files.append(entry)
+        exporter, config = self.fixture.export()
+        self.assertEqual((exporter.deps / "SourcePackages/Clang Helper" / entry).read_text(), contents)
+        self.assertFalse(any("Example.modulemap" in arg for arg in config["NXSwiftFlags"]))
+
+    def test_include_discovered_modulemap_is_relocated_without_explicit_map_flag(self):
+        source_map = self.fixture.write(self.fixture.header.parent / "module.modulemap",
+                                       self.fixture.module_map.read_text())
+        self.fixture.tracked_files.append("include/module.modulemap")
+        explicit_flag = shlex.join(["-Xcc", "-fmodule-map-file=" + self.fixture.module_map.as_posix()])
+        self.fixture.log = self.fixture.log.replace(explicit_flag, "")
+        exporter, _ = self.fixture.export()
+        staged = exporter.deps / "SourcePackages/Clang Helper/include/module.modulemap"
+        self.assertNotIn(self.fixture.header.as_posix(), staged.read_text())
+        relative_header = staged.read_text().split('header "', 1)[1].split('"', 1)[0]
+        self.assertTrue((staged.parent / relative_header).is_file())
+        self.assertEqual(source_map.read_text(), self.fixture.module_map.read_text())
+
+    def test_external_include_modulemap_is_relocated_after_include_copy(self):
+        include = self.fixture.root / "External Headers"
+        self.fixture.write(include / "module.modulemap", self.fixture.module_map.read_text())
+        include_flag = shlex.join(["-Xcc", "-I" + include.as_posix()])
+        self.fixture.log = self.fixture.log.replace("-D SWIFT_PACKAGE", include_flag + " -D SWIFT_PACKAGE")
+        exporter, _ = self.fixture.export()
+        staged = next((exporter.deps / "Includes").rglob("module.modulemap"))
+        self.assertNotIn(self.fixture.header.as_posix(), staged.read_text())
+        relative_header = staged.read_text().split('header "', 1)[1].split('"', 1)[0]
+        self.assertTrue((staged.parent / relative_header).resolve().is_file())
+
+    def test_empty_and_filtered_include_directories_do_not_block_export(self):
+        include = self.fixture.root / "DerivedSources"
+        include.mkdir()
+        include_flag = shlex.join(["-Xcc", "-I" + include.as_posix()])
+        self.fixture.log = self.fixture.log.replace("-D SWIFT_PACKAGE", include_flag + " -D SWIFT_PACKAGE")
+        for filtered in (False, True):
+            with self.subTest(filtered=filtered):
+                if filtered:
+                    self.fixture.write(include / "Ignored.swift", "let excluded = true\n")
+                    self.fixture.write(include / "Ignored.txt", "not import metadata\n")
+                exporter, _ = self.fixture.export()
+                staged = next((exporter.deps / "Includes").iterdir())
+                self.assertTrue(staged.is_dir())
+                self.assertEqual(list(staged.iterdir()), [])
+
+    def test_nested_include_modulemap_and_private_companion_are_relocated(self):
+        directory = self.fixture.header.parent / "Nested"
+        for name in ("module.modulemap", "module.private.modulemap"):
+            self.fixture.write(directory / name, self.fixture.module_map.read_text())
+            self.fixture.tracked_files.append("include/Nested/" + name)
+        exporter, _ = self.fixture.export()
+        for name in ("module.modulemap", "module.private.modulemap"):
+            staged = exporter.deps / "SourcePackages/Clang Helper/include/Nested" / name
+            self.assertNotIn(self.fixture.header.as_posix(), staged.read_text())
+            relative_header = staged.read_text().split('header "', 1)[1].split('"', 1)[0]
+            self.assertTrue((staged.parent / relative_header).resolve().is_file())
+
+    def test_explicit_modulemap_private_companion_is_relocated(self):
+        self.fixture.write(self.fixture.module_map.with_name("module.private.modulemap"),
+                           self.fixture.module_map.read_text())
+        exporter, _ = self.fixture.export()
+        staged = next((exporter.deps / "ModuleMaps").rglob("module.private.modulemap"))
+        self.assertNotIn(self.fixture.header.as_posix(), staged.read_text())
+        relative_header = staged.read_text().split('header "', 1)[1].split('"', 1)[0]
+        self.assertTrue((staged.parent / relative_header).resolve().is_file())
+
+    def test_active_modulemap_with_missing_header_still_fails(self):
+        self.fixture.module_map.write_text('module ClangHelper { header "missing-active.h" export * }\n')
+        with self.assertRaisesRegex(ValueError, "Missing modulemap header/umbrella"):
+            self.fixture.export()
 
     def test_relative_modulemap_headers_keep_their_original_relationship(self):
         # A generated map references a header outside its own directory.
