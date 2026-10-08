@@ -1,6 +1,6 @@
 # Nyxian source export
 
-Run the **Export Nyxian Source** (`hayase_nyxian_source`) workflow manually in Codemagic. It builds Hayase for a physical iOS device and converts that successful build into a self-contained, editable Nyxian project. The normal IPA workflow is unchanged.
+Run **Export Nyxian Source** manually in either Codemagic (`hayase_nyxian_source`) or [GitHub Actions](https://github.com/scigward/hayase-ios/actions/workflows/export-nyxian-source.yml). On GitHub, select **Run workflow**, choose the branch (normally `master`), and run it. Both workflows use the same exporter and regression tests: they build Hayase for a physical iOS device and convert that successful build into a self-contained, editable Nyxian project. The normal IPA workflow is unchanged.
 
 Artifacts are written to `build/nyxian-export/`:
 
@@ -10,16 +10,16 @@ Artifacts are written to `build/nyxian-export/`:
 
 The workflow uses `scripts/export_nyxian_source.sh`. A failed build or incomplete dependency export fails the workflow; it does not publish a partial project as a successful export.
 
-No signing secrets or new Codemagic environment groups are required. The export uses the workflow's selected Xcode, the existing WebTorrent/GeoIP builders, and the exact resolved package revisions; their versions are recorded in the report. The script can also be run with `bash scripts/export_nyxian_source.sh` on a Mac with Xcode, XcodeGen, Node and Python 3.9 or newer. `NYXIAN_PACKAGES_DIR` can override the package cache location.
+No signing secrets or new Codemagic environment groups are required. GitHub uses a macOS runner with the latest installed stable Xcode, a Swift package cache, and the same 120-minute timeout as Codemagic. The export uses the workflow's selected Xcode, the existing WebTorrent/GeoIP builders, and the exact resolved package revisions; their versions are recorded in the report. The script can also be run with `bash scripts/export_nyxian_source.sh` on a Mac with Xcode, XcodeGen, Node and Python 3.9 or newer. `NYXIAN_PACKAGES_DIR` can override the package cache location.
 
 ## Import and run
 
-1. Download the ZIP artifact from Codemagic and transfer it to Files on the iPhone or iPad.
+1. Download `Hayase-Nyxian-Source.zip` from the successful Codemagic or GitHub run and transfer it to Files on the iPhone or iPad. GitHub uploads this ZIP directly, without an additional artifact wrapper. Its separate `Hayase-Nyxian-Verification` artifact contains the checksum/report, and `Hayase-Nyxian-Logs` contains diagnostic logs (also uploaded after a failed export).
 2. Finish Nyxian's SDK/toolchain bootstrap and configure its signing setup. These are Nyxian prerequisites, not files supplied by this export.
 3. Use the import button on Nyxian's Projects screen and select `Hayase-Nyxian-Source.zip`.
 4. Open Hayase and build/run it in Nyxian. No Xcode project generation, package resolution or resource compilation is required on the device.
 
-The export includes editable **app target** source files, preserving their original relative paths. Dependency binaries, import modules and resources are frozen at the revisions used for that Codemagic build. Editing Hayase's Swift source is supported; changing package versions, package sources, asset catalogs, storyboards or other compiled resources requires a new Codemagic export.
+The export includes editable **app target** source files, preserving their original relative paths. Dependency binaries, import modules and resources are frozen at the revisions used for that CI build. Editing Hayase's Swift source is supported; changing package versions, package sources, asset catalogs, storyboards or other compiled resources requires a new export.
 
 ## Why this is not a renamed final-source archive
 

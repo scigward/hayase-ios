@@ -1,0 +1,82 @@
+# Mirrors codemagic.yaml (hayase_nyxian_source). Both use the shared exporter.
+name: Export Nyxian Source
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-nyxian-source:
+    name: Export Nyxian Source
+    runs-on: macos-latest
+    timeout-minutes: 120
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+
+    steps:
+      - name: Check out Hayase
+        uses: actions/checkout@v7
+        with:
+          # app_version.sh counts commits back to Hayase's initial revision.
+          fetch-depth: 0
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Cache Swift packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.hayase-spm
+          key: nyxian-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('project.yml', 'Vendor/**/Package.swift') }}
+          restore-keys: |
+            nyxian-spm-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install export tools
+        run: |
+          set -euo pipefail
+          command -v xcodegen >/dev/null || brew install xcodegen
+          command -v node >/dev/null || brew install node
+          command -v python3 >/dev/null || brew install python
+
+      - name: Test the Nyxian exporter
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/tests -p 'test_nyxian_export.py' -v
+
+      - name: Build and validate Nyxian source export
+        run: |
+          set -euo pipefail
+          bash ./scripts/export_nyxian_source.sh
+
+      - name: Upload importable Nyxian project
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/nyxian-export/Hayase-Nyxian-Source.zip
+          # Nyxian must receive the project ZIP, not an artifact wrapper ZIP.
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload export verification
+        uses: actions/upload-artifact@v7
+        with:
+          name: Hayase-Nyxian-Verification
+          path: |
+            build/nyxian-export/Hayase-Nyxian-Source.zip.sha256
+            build/nyxian-export/export-report.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build and validation logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Hayase-Nyxian-Logs
+          path: build/nyxian-export/*.log
+          if-no-files-found: ignore
+          retention-days: 14
