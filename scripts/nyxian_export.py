@@ -513,6 +513,12 @@ class Exporter:
         # Nyxian copies legacy Swift driver jobs without filling their temporary
         # file lists. Keep source and object paths inline, including large targets.
         swift.extend(["-driver-filelist-threshold", "2147483647"])
+        # Export-only workaround for Nyxian's linker argument-storage lifetime:
+        # compile the editable app as one module/object instead of hundreds of
+        # primary-file objects. Any positive thread count (even 1) makes the
+        # legacy driver produce per-input objects again, so explicitly use 0.
+        # Keep -O, all source files, dependency links and the normal IPA unchanged.
+        swift.extend(["-whole-module-optimization", "-num-threads", "0"])
         config = {
             "NXProjectFormat": "NXAvixR2", "NXProjectScheme": "Application",
             "NXExecutable": "Hayase", "NXDisplayName": "Hayase", "NXOrganizationPrefix": "app",
@@ -549,6 +555,37 @@ def validate_layout(project, config, sources):
         require((project / "Resources" / name).exists(), f"Missing resource {name}")
 
 
+def validate_single_object_plan(plan, sources, output):
+    """Check actual host driver jobs, not just the presence of WMO flags."""
+    jobs = []
+    for line in plan.splitlines():
+        try:
+            jobs.append(shlex.split(line))
+        except ValueError:
+            # Driver diagnostics can contain unmatched quotes. Actual commands
+            # are shell-escaped, and a missing command fails the checks below.
+            continue
+    compiles = [job for job in jobs if "-frontend" in job
+                and any(flag in job for flag in ("-c", "-emit-object"))
+                and option_values(job, "-module-name") == ["Hayase"]]
+    require(len(compiles) == 1, "Nyxian workaround requires one Hayase compilation job")
+    compile_args = compiles[0]
+    require(set(sources).issubset(compile_args), "Single-object compilation omits app source files")
+    file_lists = {"-primary-file", "-filelist", "-primary-filelist", "-output-filelist",
+                  "-supplementary-output-file-map"}
+    require(not file_lists.intersection(compile_args),
+            "Nyxian workaround must not use primary-file jobs or temporary file lists")
+    objects = option_values(compile_args, "-o")
+    require(len(objects) == 1 and objects[0].endswith(".o"),
+            "Nyxian workaround requires a single compiled app object")
+    links = [job for job in jobs if "-frontend" not in job
+             and option_values(job, "-o") == [str(output)]]
+    require(len(links) == 1 and links[0].count(objects[0]) == 1,
+            "Nyxian workaround requires the single app object inline in the link job")
+    require(not file_lists.intersection(links[0]), "Link job contains a temporary file list")
+    return {"compileJobs": 1, "appObjectInputs": 1, "hostLinkArgumentCount": len(links[0]) - 1}
+
+
 def smoke_test(exporter, config, output):
     """Compile/link from relocated inputs, without SPM or Xcode project context."""
     sdk = run("xcrun", "--sdk", "iphoneos", "--show-sdk-path")
@@ -567,9 +604,15 @@ def smoke_test(exporter, config, output):
     args.extend(str(exporter.project / path) for path in exporter.source_paths)
     for arg in config["NXLinkerFlags"]:
         args.extend(["-Xlinker", expand(arg)])
-    args.extend(["-o", str(output / "Hayase-export-smoke")])
+    executable = output / "Hayase-export-smoke"
+    args.extend(["-o", str(executable)])
+    plan = run(*args, "-driver-print-jobs")
+    (output / "export-driver-jobs.log").write_text(plan + "\n")
+    driver_plan = validate_single_object_plan(
+        plan, [str(exporter.project / path) for path in exporter.source_paths], executable)
     with (output / "export-smoke.log").open("w") as log:
         subprocess.run(args, check=True, stdout=log, stderr=subprocess.STDOUT)
+    return driver_plan
 
 
 def zip_project(project, archive):
@@ -612,7 +655,7 @@ def main():
         exporter.import_metadata()
         config = exporter.config(info)
         validate_layout(project, config, exporter.source_paths)
-        smoke_test(exporter, config, output)
+        driver_plan = smoke_test(exporter, config, output)
         resolved = options.repo / "Hayase.xcworkspace/xcshareddata/swiftpm/Package.resolved"
         require(resolved.is_file(), "Missing resolved dependency lockfile")
         copy_tree(resolved, project / "Config/Package.resolved")
@@ -627,9 +670,11 @@ def main():
             "sdkVersion": run("xcrun", "--sdk", "iphoneos", "--show-sdk-version"),
             "deploymentTarget": config["NXDeploymentTarget"], "architecture": "arm64",
             "sourceCount": len(exporter.source_paths), "libraries": sorted(exporter.lib_names),
+            "swiftCompilationMode": "whole-module-single-object", "hostDriverPlan": driver_plan,
             "frameworks": sorted(exporter.framework_names), "packages": json.loads(resolved.read_text()),
             "torrentClientRevision": run("git", "-C", options.repo / ".build/webtorrent-backend/torrent-client", "rev-parse", "HEAD"),
-            "checks": {"originalXcodeBuild": "passed", "nyxianLayout": "passed", "relocatedCompileAndLink": "passed",
+            "checks": {"originalXcodeBuild": "passed", "nyxianLayout": "passed", "singleObjectDriverPlan": "passed",
+                       "relocatedCompileAndLink": "passed",
                        "onDeviceNyxianRun": "not performed"},
         }
         (project / "Config/export-report.json").write_text(json.dumps(report, indent=2) + "\n")

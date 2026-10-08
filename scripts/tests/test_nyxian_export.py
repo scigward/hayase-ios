@@ -529,6 +529,9 @@ class ExportContractTests(unittest.TestCase):
         self.assertEqual(len(exporter.source_paths), 289)
         flags = config["NXSwiftFlags"]
         self.assertEqual(EXPORT.option_values(flags, "-driver-filelist-threshold"), ["2147483647"])
+        self.assertEqual(flags.count("-whole-module-optimization"), 1)
+        self.assertEqual(EXPORT.option_values(flags, "-num-threads"), ["0"])
+        self.assertIn("-O", flags)
         self.assertFalse(any(arg in {"-filelist", "-primary-filelist", "-output-filelist",
                                      "-supplementary-output-file-map"} for arg in flags))
         archive = self.fixture.root / "large-export.zip"
@@ -550,21 +553,32 @@ class ExportContractTests(unittest.TestCase):
                 return str(self.fixture.sdk)
             if args == ("xcrun", "swiftc", "-print-target-info"):
                 return json.dumps({"paths": {"runtimeResourcePath": runtime}})
+            if args[:2] == ("xcrun", "swiftc") and args[-1] == "-driver-print-jobs":
+                obj = str(output / "Hayase.o")
+                frontend = ["swift-frontend", "-frontend", "-c", "-module-name", "Hayase",
+                            *(str(exporter.project / path) for path in exporter.source_paths), "-o", obj]
+                linker = ["ld", obj, "-o", str(output / "Hayase-export-smoke")]
+                return "\n".join(shlex.join(job) for job in (frontend, linker))
             raise AssertionError("Unexpected toolchain query: " + repr(args))
 
         with patch.object(EXPORT, "run", side_effect=environment), \
                 patch.object(EXPORT.subprocess, "run") as compiler:
-            EXPORT.smoke_test(exporter, config, output)
+            driver_plan = EXPORT.smoke_test(exporter, config, output)
         compiler.assert_called_once()
         args = compiler.call_args.args[0]
         self.assertEqual(args[:2], ["xcrun", "swiftc"])
         self.assertEqual(EXPORT.option_values(args, "-driver-filelist-threshold"), ["2147483647"])
+        self.assertIn("-whole-module-optimization", args)
+        self.assertEqual(EXPORT.option_values(args, "-num-threads"), ["0"])
         for source in exporter.source_paths:
             self.assertEqual(args.count(str(exporter.project / source)), 1)
         self.assertIn(runtime, args)
         self.assertIn(str(output / "smoke-module-cache"), args)
         self.assertFalse(any("$(" in arg for arg in args))
+        self.assertNotIn("-driver-print-jobs", args)  # The actual smoke compile must still run.
         self.assertTrue(compiler.call_args.kwargs["check"])
+        self.assertEqual(driver_plan, {"compileJobs": 1, "appObjectInputs": 1, "hostLinkArgumentCount": 3})
+        self.assertTrue((output / "export-driver-jobs.log").is_file())
 
     def test_zip_has_exactly_one_project_root_and_valid_config(self):
         self.fixture.export()
@@ -578,6 +592,8 @@ class ExportContractTests(unittest.TestCase):
             self.assertEqual(config["NXProjectScheme"], "Application")
             self.assertEqual(EXPORT.option_values(config["NXSwiftFlags"], "-driver-filelist-threshold"),
                              ["2147483647"])
+            self.assertIn("-whole-module-optimization", config["NXSwiftFlags"])
+            self.assertEqual(EXPORT.option_values(config["NXSwiftFlags"], "-num-threads"), ["0"])
             self.assertNotIn("Hayase/Resources/Hayase", zipped.namelist())
 
     def test_missing_framework_fails_instead_of_silently_creating_incomplete_archive(self):
@@ -623,6 +639,87 @@ class ExportContractTests(unittest.TestCase):
         self.fixture.interface.write_text("// swift-module-flags: -module-link-name MissingPackage\n")
         with self.assertRaisesRegex(ValueError, "unexported library: MissingPackage"):
             self.fixture.export()
+
+
+class SingleObjectDriverPlanTests(unittest.TestCase):
+    def setUp(self):
+        self.sources = ["/project with spaces/First.swift", "/project with spaces/Second.swift"]
+        self.obj = "/temporary path/Hayase.o"
+        self.output = "/output with spaces/Hayase-export-smoke"
+        self.frontend = ["/toolchain/swift-frontend", "-frontend", "-c", *self.sources,
+                         "-module-name", "Hayase", "-o", self.obj]
+        self.linker = ["/toolchain/clang", self.obj, "-arch", "arm64", "-o", self.output]
+
+    def validate(self, frontend=None, linker=None, extra=()):
+        jobs = [self.frontend if frontend is None else frontend,
+                self.linker if linker is None else linker, *extra]
+        plan = "\n".join(shlex.join(job) for job in jobs)
+        return EXPORT.validate_single_object_plan(plan, self.sources, self.output)
+
+    def test_quoted_paths_are_preserved_in_single_object_plan(self):
+        self.assertEqual(self.validate(), {"compileJobs": 1, "appObjectInputs": 1,
+                                          "hostLinkArgumentCount": 5})
+
+    def test_emit_object_spelling_is_supported(self):
+        frontend = ["-emit-object" if arg == "-c" else arg for arg in self.frontend]
+        self.assertEqual(self.validate(frontend=frontend)["appObjectInputs"], 1)
+
+    def test_shell_escaped_output_path_is_decoded_before_matching(self):
+        plan = shlex.join(self.frontend) + "\n" + " ".join(arg.replace(" ", "\\ ")
+                                                         for arg in self.linker)
+        self.assertEqual(EXPORT.validate_single_object_plan(plan, self.sources, self.output)["appObjectInputs"], 1)
+
+    def test_unmatched_quote_in_diagnostic_does_not_hide_valid_jobs(self):
+        plan = "warning: can't use an unrelated option\n" + "\n".join(
+            shlex.join(job) for job in (self.frontend, self.linker))
+        self.assertEqual(EXPORT.validate_single_object_plan(plan, self.sources, self.output)["compileJobs"], 1)
+
+    def test_other_module_jobs_are_not_counted_as_app_compilations(self):
+        dependency = ["Foundation" if arg == "Hayase" else arg for arg in self.frontend]
+        self.assertEqual(self.validate(extra=[dependency])["compileJobs"], 1)
+
+    def test_missing_compile_job_fails(self):
+        with self.assertRaisesRegex(ValueError, "one Hayase compilation"):
+            self.validate(frontend=[])
+
+    def test_multiple_app_compile_jobs_fail(self):
+        with self.assertRaisesRegex(ValueError, "one Hayase compilation"):
+            self.validate(extra=[self.frontend])
+
+    def test_omitted_source_fails(self):
+        with self.assertRaisesRegex(ValueError, "omits app source"):
+            self.validate(frontend=[arg for arg in self.frontend if arg != self.sources[1]])
+
+    def test_primary_file_and_temporary_output_maps_fail(self):
+        for flag in ("-primary-file", "-filelist", "-primary-filelist", "-output-filelist",
+                     "-supplementary-output-file-map"):
+            with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, "primary-file jobs"):
+                self.validate(frontend=self.frontend + [flag, "/temporary/input list"])
+
+    def test_multiple_object_outputs_fail(self):
+        with self.assertRaisesRegex(ValueError, "single compiled app object"):
+            self.validate(frontend=self.frontend + ["-o", "/temporary/Second.o"])
+
+    def test_non_object_output_fails(self):
+        frontend = ["/temporary/Hayase.bc" if arg == self.obj else arg for arg in self.frontend]
+        with self.assertRaisesRegex(ValueError, "single compiled app object"):
+            self.validate(frontend=frontend)
+
+    def test_missing_or_duplicate_object_in_link_job_fails(self):
+        for linker in ([arg for arg in self.linker if arg != self.obj], self.linker + [self.obj]):
+            with self.subTest(linker=linker), self.assertRaisesRegex(ValueError, "single app object inline"):
+                self.validate(linker=linker)
+
+    def test_linker_filelist_fails(self):
+        with self.assertRaisesRegex(ValueError, "temporary file list"):
+            self.validate(linker=self.linker + ["-filelist", "/temporary/object list"])
+
+    def test_wrong_or_duplicate_link_job_fails(self):
+        linker = ["/other/application" if arg == self.output else arg for arg in self.linker]
+        with self.assertRaisesRegex(ValueError, "single app object inline"):
+            self.validate(linker=linker)
+        with self.assertRaisesRegex(ValueError, "single app object inline"):
+            self.validate(extra=[self.linker])
 
 
 if __name__ == "__main__":
