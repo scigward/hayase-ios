@@ -283,7 +283,10 @@ Checked, nothing to change:
 5. The writer (`TH-40`, `TH-41`, `TH-42`).
 6. Web view cost (`TH-53`) and the file split (`TH-70`, `TH-62`).
 
-## Decisions needed before step 5 and 6
+## Decisions (made 2026-10-10: the better option, whatever the work)
 
-- **Writer**: port the interface's own editor by loading OverType (the package the interface uses) in a web view, which is exact and brings the toolbar, shortcuts and styling at once; or build a native toolbar and styling on `UITextView`, which is not the same editor. The first matches "exactly like the interface".
-- **Web views**: keep one per body but share a process pool and serve the font and scripts from the bundle (`TH-53`), or render a thread page's bodies in fewer views. The first changes the least.
+- **Writer**: the interface's own editor. OverType 2.4 (MIT, 120 KB minified, bundled so nothing is fetched) runs in a web view with the same options as `markdown.svelte` (toolbar, theme colours, placeholder, `autoResize: false`), and its value comes back through a message handler on `onChange`. The dialog around it is native and follows `Dialog` (overlay, `flyAndScale`, the close button, anchored to the bottom), with native Close and Send buttons. A native clone of the editor would never match its list continuation, view mode, link tooltip and the syntax overlay, and would drift with every OverType release.
+- **Web views**: the aim is a page whose cost does not grow with its replies.
+  1. One shared `WKProcessPool` and data store, the font and scripts served from the bundle through a URL scheme (so each view's HTML is a few KB, not about 440 KB), and the markdown parsed and sanitised once in one shared renderer view, so a body view gets plain sanitised HTML and no scripts of its own.
+  2. Only the bodies near the screen keep a live view; the shared renderer measures every body so card heights are known and the layout does not jump while scrolling.
+  Step 1 first, step 2 after it has been run on the device: nothing here can be run on a Mac, so each step is tested before the next.
