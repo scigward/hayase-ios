@@ -1040,7 +1040,7 @@ private final class ProfileCardViewController: UIViewController {
 }
 
 
-private extension UIResponder {
+extension UIResponder {
     var nearestViewController: UIViewController? {
         var responder: UIResponder? = self
         while let current = responder {

@@ -209,9 +209,9 @@ Swift's CSS adds `overflow-wrap: break-word` and `overflow-x: hidden` (`Shadow.s
 
 Each post and each comment, replies included, is its own `WKWebView` with its own configuration and non-persistent data store. Page 1 of thread 52428 has 22 bodies, thread 51899 has 40 (counted in the interface). Each view loads the base64 of the 277 KB font in its HTML (about 370 KB) and 72 KB of scripts. Memory and CPU grow with every comment, and a long page risks the system ending the app.
 
-### TH-54 `webm()` without the leading `h`. Low, Confirmed
+### TH-54 `webm()` without the leading `h`. Low, Documented deviation
 
-The interface turns `webm(i.imgur.com/x.webm)` into a `<video>` with a broken `src`; Swift drops it (`AniListRichText.js`, `if (!/^https?:\/\//i.test(url)) return ''`). No comment says why.
+The interface turns `webm(i.imgur.com/x.webm)` into a `<video>` with a broken `src`; Swift drops it (`AniListRichText.js`, `if (!/^https?:\/\//i.test(url)) return ''`). `Resources/RichText/README.md` lists it among the intentional fixes ("WebM URLs require HTTP(S)"), so it stays. (An earlier pass removed the check; that was reverted.)
 
 ## 5. Data and navigation
 
@@ -266,6 +266,7 @@ Checked, nothing to change:
 - Anime links in bodies keep the last digit of an id (`AniListRichText.js` comment); the interface cuts it when the URL has no trailing slash.
 - A second DOMPurify pass and the iframe and video attributes, with `playsinline` (needed inline on iOS).
 - Links open with `UIApplication.open` for `http`, `https` and `mailto` only.
+- `webm(...)` needs a full `http(s)` URL (`TH-54`); the interface renders a `<video>` with a broken source.
 - Offline queue for `ToggleLikeV2`, and a time limit on cached thread pages (`cacheFirstMaxAge`), because Swift's cache is in memory and the interface's is not.
 
 ## Not verified
@@ -285,8 +286,26 @@ Checked, nothing to change:
 
 ## Decisions (made 2026-10-10: the better option, whatever the work)
 
-- **Writer**: the interface's own editor. OverType 2.4 (MIT, 120 KB minified, bundled so nothing is fetched) runs in a web view with the same options as `markdown.svelte` (toolbar, theme colours, placeholder, `autoResize: false`), and its value comes back through a message handler on `onChange`. The dialog around it is native and follows `Dialog` (overlay, `flyAndScale`, the close button, anchored to the bottom), with native Close and Send buttons. A native clone of the editor would never match its list continuation, view mode, link tooltip and the syntax overlay, and would drift with every OverType release.
+- **Writer**: the interface's own editor. OverType 2.4 (MIT, 120 KB minified, bundled so nothing is fetched) runs in a web view with the same options as `markdown.svelte` (toolbar, theme colours, placeholder, `autoResize: false`), and its value comes back through a message handler on `onChange`. The dialog around it is native and follows `Dialog` as measured in the running interface (overlay, only the opacity animates, the close button, anchored to the bottom, 50% high and 90% when there is a keyboard), with native Close and Send buttons. A native clone of the editor would never match its list continuation, view mode, link tooltip and the syntax overlay, and would drift with every OverType release.
 - **Web views**: the aim is a page whose cost does not grow with its replies.
-  1. One shared `WKProcessPool` and data store, the font and scripts served from the bundle through a URL scheme (so each view's HTML is a few KB, not about 440 KB), and the markdown parsed and sanitised once in one shared renderer view, so a body view gets plain sanitised HTML and no scripts of its own.
+  1. One shared `WKProcessPool` and data store, the font shrunk to a WOFF2 of 101 KB that each page inlines (a custom URL scheme was left out: a font from another scheme is a cross-origin load, and nothing here can run on a device to prove it works), and the markdown parsed and sanitised once in one shared renderer view, so a body view gets plain sanitised HTML and no scripts of its own.
   2. Only the bodies near the screen keep a live view; the shared renderer measures every body so card heights are known and the layout does not jump while scrolling.
   Step 1 first, step 2 after it has been run on the device: nothing here can be run on a Mac, so each step is tested before the next.
+
+## Status (2026-10-10)
+
+Done in code, only parse-checked (there is no compiler here, so none of it has been built or run):
+
+- Spacing, colours, text metrics and the page rhythm (`TH-01` to `TH-05`, `TH-20` to `TH-24`, `TH-28`, `TH-30`, `TH-50`, `TH-51`), the title tooltip and hover shadow (`TH-09`, `TH-10`), avatar and lock icon (`TH-07`, `TH-08`), accessibility of the cards (`TH-11`, needs a device).
+- Only the comments are rebuilt when they change, after send or delete the comments are asked for again, the page buttons count 0 while a page loads, no alert on a failed like, send or delete, the skeleton pulses (`TH-25` to `TH-27`, `TH-31`, `TH-32`).
+- A thread opens from what the list has and is refreshed from the network, and the list takes the changed thread back (`TH-60`, `TH-61`, `TH-62`).
+- The writer is OverType in a web view inside a native bottom dialog (`TH-40` to `TH-42`).
+- Rich text bodies share one web content process and one parser, with a WOFF2 font (`TH-53`, step 1).
+- The files follow the interface: `Forums/Threads.swift`, `Forums/Comments.swift` (`ThreadCommentsView` with its skeleton and states), `Forums/Comment.swift`, `Forums/Write.swift`, and `Routes/App/Anime/[id]/Thread/[threadId]/` with `Page.swift` and `ThreadRouteLoader.swift` (`+layout.ts`) (`TH-70`).
+
+Not done:
+
+- `TH-06`: category badges do not wrap onto a second line when there are many (`flex-wrap`).
+- `TH-10`: the second layer of `shadow-lg` is one layer only.
+- `TH-29` (the `...` item is written as measured) and `TH-63` (the scroll offset when a thread opens or closes) need a device.
+- `TH-53` step 2 (only the bodies near the screen keep a live view): after the shared renderer has been tried on a device.

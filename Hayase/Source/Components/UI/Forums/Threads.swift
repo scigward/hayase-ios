@@ -2,7 +2,7 @@
 //  Threads.swift
 //  Hayase
 //
-//  Mirrors: src/lib/components/ui/forums/Threads.svelte, src/routes/app/anime/[id]/thread/[threadId]/+layout.ts, src/routes/app/anime/[id]/thread/[threadId]/+page.svelte
+//  Mirrors: src/lib/components/ui/forums/Threads.svelte
 //
 
 import UIKit
@@ -546,84 +546,6 @@ extension AnimeDetailViewController {
             if self.activeSection == .threads {
                 self.reloadSectionsWithoutAnimation([.threads, .threadPagination])
             }
-        }
-    }
-
-
-    func applyEmbeddedThreadRoute(threadID: Int?, title: String?) {
-        loadViewIfNeeded()
-        if embeddedThreadID == threadID, embeddedThreadTitle == title { return }
-        embeddedThreadID = threadID
-        embeddedThreadTitle = title
-        if threadID == nil {
-            activeSection = .episodes
-            embeddedThreadViewController?.willMove(toParent: nil)
-            embeddedThreadViewController?.view.removeFromSuperview()
-            embeddedThreadViewController?.removeFromParent()
-            embeddedThreadViewController = nil
-        }
-        applyTabBarLayoutForSizeClass()
-        tableView.reloadData()
-    }
-
-    private func makeEmbeddedThreadCell() -> UITableViewCell {
-        guard let threadID = embeddedThreadID, let animeID = routeAnimeID else { return UITableViewCell() }
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        cell.backgroundColor = .clear
-        cell.contentView.backgroundColor = .clear
-        cell.selectionStyle = .none
-
-        let threadVC: ThreadDetailViewController
-        let didCreateThreadController: Bool
-        if let existing = embeddedThreadViewController, existing.routeThreadID == threadID {
-            threadVC = existing
-            didCreateThreadController = false
-        } else {
-            embeddedThreadViewController?.willMove(toParent: nil)
-            embeddedThreadViewController?.view.removeFromSuperview()
-            embeddedThreadViewController?.removeFromParent()
-            threadVC = ThreadDetailViewController(threadID: threadID,
-                                                  animeID: animeID,
-                                                  title: embeddedThreadTitle ?? Router.shared.cachedThreadTitle(for: threadID) ?? "Thread",
-                                                  coverColor: animeItem?.coverColor,
-                                                  preloadedThread: Router.shared.cachedThread(for: threadID))
-            threadVC.onContentHeightChange = { [weak self] in
-                self?.invalidateEmbeddedThreadHeight()
-            }
-            threadVC.onThreadChange = { [weak self] thread in
-                self?.updateListedThread(thread)
-            }
-            addChild(threadVC)
-            embeddedThreadViewController = threadVC
-            didCreateThreadController = true
-        }
-
-        threadVC.view.removeFromSuperview()
-        threadVC.view.translatesAutoresizingMaskIntoConstraints = false
-        cell.contentView.addSubview(threadVC.view)
-
-        let sidePad = Self.interfacePageSideInset(for: viewportWidth)
-        // +layout.svelte's outer column is gap-4 / md:gap-6. The genres and
-        // tags row is the item immediately before <slot />, so preserve that
-        // exact gap before the embedded thread route begins.
-        let topGap: CGFloat = isMediumViewport ? 24 : 16
-        NSLayoutConstraint.activate([
-            threadVC.view.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: topGap),
-            threadVC.view.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -40),   // `pb-10`
-            threadVC.view.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
-            threadVC.view.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
-        ])
-        if didCreateThreadController {
-            threadVC.didMove(toParent: self)
-        }
-        return cell
-    }
-
-    private func invalidateEmbeddedThreadHeight() {
-        guard embeddedThreadID != nil else { return }
-        UIView.performWithoutAnimation {
-            tableView.beginUpdates()
-            tableView.endUpdates()
         }
     }
 
