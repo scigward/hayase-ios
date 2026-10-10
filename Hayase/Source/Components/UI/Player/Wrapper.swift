@@ -213,6 +213,10 @@ final class MiniPlayerManager {
         activePlayer = player
         hostView = host
 
+        // One mini-player: a container that is still there (a second minimize, a restore that left it) goes first.
+        containerView?.layer.removeAllAnimations()
+        containerView?.removeFromSuperview()
+
         // Create the mini-player container (shadow + rounded corners).
         let container = makeContainer()
         host.addSubview(container)
@@ -277,11 +281,13 @@ final class MiniPlayerManager {
         }
 
         // wrapper.svelte: the class change is a `transition-transform` from no transform to the place of the
-        // mini-player (`translate3d(0, -1rem, 0)`, further right while paused), so it rises from the bottom edge
-        // with the same bounce.
+        // mini-player (`translate3d(0, -1rem, 0)`), so it rises from the bottom edge with the same bounce. What the
+        // interface also does for a paused video, sliding it out to its edge with that bounce, is left out: the video
+        // is half off the screen then and the device drew it in two pieces for the length of the bounce.
+        let place = container.layer.position
         let rise = CABasicAnimation(keyPath: "position")
-        rise.fromValue = NSValue(cgPoint: CGPoint(x: revealedFrame.midX, y: revealedFrame.midY + edgePadding))
-        rise.toValue = NSValue(cgPoint: container.layer.position)
+        rise.fromValue = NSValue(cgPoint: CGPoint(x: place.x, y: place.y + edgePadding))
+        rise.toValue = NSValue(cgPoint: place)
         rise.duration = snapDuration
         rise.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 1.5, 0.8, 1)
         container.layer.add(rise, forKey: Self.riseKey)
