@@ -12,6 +12,8 @@ import UIKit
 final class Button: SelectButton {
     private let iconName: String
     private let iconPointSize: CGFloat
+    /// `size-9`: 36, or less where the button is a flex item that gives way
+    private(set) var widthConstraint: NSLayoutConstraint!
 
     init(iconName: String, pointSize: CGFloat = 16) {
         self.iconName = iconName
@@ -32,7 +34,8 @@ final class Button: SelectButton {
             .withConfiguration(UIImage.SymbolConfiguration(pointSize: iconPointSize, weight: .regular)),
             for: .normal)
         translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: 36).isActive = true
+        widthConstraint = widthAnchor.constraint(equalToConstant: 36)
+        widthConstraint.isActive = true
         heightAnchor.constraint(equalToConstant: 36).isActive = true
     }
 }

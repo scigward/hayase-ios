@@ -32,7 +32,6 @@
         id + '?enablejsapi=1&autoplay=0&controls=1&mute=0&disablekb=1&loop=1&playlist=' + id + '&cc_lang_pref=ja"></iframe>')
       .replace(/webmv\s?\(<code>([A-Za-z0-9-._~:\/?#\[\]@!$&()*+,;=%]+)<\/code>\)/gi, (_, rest) => {
         const url = 'h' + rest;
-        if (!/^https?:\/\//i.test(url)) return '';
         return '<video playsinline muted loop controls><source src="' + escape(url) +
           '" type="video/webm">Your browser does not support the video tag.</video>';
       });

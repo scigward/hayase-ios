@@ -110,7 +110,7 @@ class AniListRichTextView: UIView, WKScriptMessageHandler, WKNavigationDelegate,
 
     private static func document(kind: Kind) -> String {
         let padding = kind == .profile ? 8 : (kind == .thread ? 12 : 0)
-        let color = kind == .profile ? "98%" : "63.9%"
+        let color = kind == .profile ? "98%" : "50%"   // text-muted-foreground
         let size = kind == .thread ? 16 : 14
         let lineHeight = kind == .thread ? 24 : 20
         return """
@@ -119,9 +119,10 @@ class AniListRichTextView: UIView, WKScriptMessageHandler, WKNavigationDelegate,
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src https: http: data:; media-src https: http:; frame-src https://www.youtube-nocookie.com; base-uri 'none'; form-action 'none'">
         <style>
         \(fontCSS)
+        html { color-scheme:dark; }
         html, body { margin:0; background:transparent; overflow-x:hidden; }
         body { padding:\(padding)px 0; color:hsl(0 0% \(color)); font-family:Nunito,-apple-system,sans-serif; font-size:\(size)px; line-height:\(lineHeight)px; }
-        #content { display:flow-root; overflow-wrap:break-word; }
+        #content { display:flow-root; }
         p, details { margin-block-start:.5em; margin-block-end:.5em; white-space:pre-wrap; }
         img, video { max-width:100%; -webkit-user-drag:none; }
         summary { font-weight:bold; cursor:pointer; list-style:none; background:#0003; display:inline-block; padding:.4em .8em; border-radius:.5em; margin-block-end:.5em; }

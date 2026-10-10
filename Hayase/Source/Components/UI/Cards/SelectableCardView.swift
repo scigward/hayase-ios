@@ -37,6 +37,11 @@ class SelectableCardView: UIView, UIGestureRecognizerDelegate, ActiveElementObse
         backgroundColor = restingBackground
         layer.shadowColor = UIColor.black.cgColor
         layer.shadowOpacity = 0
+        // `shadow-lg`: `0 10px 15px -3px rgb(0 0 0 / 0.1)` is the shadow that matters (a CSS blur of 15 is a radius of
+        // 7.5 here, and the -3 is a path that is 3 smaller on every side); the second one, `0 4px 6px -4px`, would
+        // have to be drawn under the card, which a layer cannot do for itself.
+        layer.shadowRadius = 7.5
+        layer.shadowOffset = CGSize(width: 0, height: 10)
 
         let press = UILongPressGestureRecognizer(target: self, action: #selector(pressChanged(_:)))
         press.minimumPressDuration = 0
@@ -58,9 +63,13 @@ class SelectableCardView: UIView, UIGestureRecognizerDelegate, ActiveElementObse
         } else {
             transform = selected ? CGAffineTransform(scaleX: 1.05, y: 1.05) : .identity
         }
-        layer.shadowRadius = selected ? 18 : 0
-        layer.shadowOpacity = selected ? 0.45 : 0
-        layer.shadowOffset = selected ? CGSize(width: 0, height: 8) : .zero
+        layer.shadowOpacity = selected ? 0.1 : 0
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.shadowPath = UIBezierPath(roundedRect: bounds.insetBy(dx: 3, dy: 3),
+                                        cornerRadius: max(0, layer.cornerRadius - 3)).cgPath
     }
 
     /// Clears the selected state immediately, for cell reuse.

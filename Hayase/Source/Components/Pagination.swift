@@ -16,6 +16,8 @@ final class ThreadPaginationView: UIView {
     private var onPageSelected: ((Int) -> Void)?
     private var currentPage = 1
     private var totalPages = 1
+    private var isWide = true
+    private var arrowButtons: [Button] = []
 
     /// What the footer counts: "comments" of a thread, "threads" of a media.
     var noun = "comments"
@@ -80,7 +82,7 @@ final class ThreadPaginationView: UIView {
         mobileRangeLabel.attributedText = text
 
         // `$breakpoints.md` is about the window
-        let isWide = (window?.bounds.width ?? UIScreen.main.bounds.width) >= 768
+        isWide = (window?.bounds.width ?? UIScreen.main.bounds.width) >= 768
         rangeLabel.isHidden = !isWide
         spacerView.isHidden = !isWide
 
@@ -90,6 +92,7 @@ final class ThreadPaginationView: UIView {
         }
 
         let previousButton = pageIconButton(iconName: "chevron-left", enabled: currentPage > 1)
+        arrowButtons = []
         previousButton.addTarget(self, action: #selector(previousPage), for: .touchUpInside)
         buttonsRow.addArrangedSubview(previousButton)
 
@@ -97,7 +100,7 @@ final class ThreadPaginationView: UIView {
             for item in paginationItems(currentPage: currentPage, totalPages: totalPages) {
                 switch item.type {
                 case .ellipsis:
-                    buttonsRow.addArrangedSubview(ellipsisLabel())
+                    buttonsRow.addArrangedSubview(ellipsisItem())
                 case .page:
                     let button = pageButton(title: "\(item.page)", selected: item.page == currentPage)
                     button.tag = item.page
@@ -112,6 +115,22 @@ final class ThreadPaginationView: UIView {
         let nextButton = pageIconButton(iconName: "chevron-right", enabled: currentPage < totalPages)
         nextButton.addTarget(self, action: #selector(nextPage), for: .touchUpInside)
         buttonsRow.addArrangedSubview(nextButton)
+        arrowButtons = [previousButton, nextButton]
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Below `md` the text between the arrows is `w-full`, and the arrows (`size-9`) are flex items that give way
+        // for it: the row is overfull by the arrows and the gaps (88), shared out by the sizes the items start with
+        // (36, the width of the row, 36).
+        var arrow: CGFloat = 36
+        if !isWide, buttonsRow.bounds.width > 0 {
+            arrow = 36 - 88 * 36 / (72 + buttonsRow.bounds.width)
+        }
+        for button in arrowButtons where abs(button.widthConstraint.constant - arrow) > 0.01 {
+            button.widthConstraint.constant = arrow
+        }
     }
 
     /// `Showing <b>start</b> to <b>end</b> of <b>count</b> nouns`
@@ -135,7 +154,7 @@ final class ThreadPaginationView: UIView {
         return text
     }
 
-    private func pageIconButton(iconName: String, enabled: Bool) -> UIButton {
+    private func pageIconButton(iconName: String, enabled: Bool) -> Button {
         let button = Button(iconName: iconName, pointSize: 16)
         button.applyGhostVariant()
         button.isEnabled = enabled
@@ -163,18 +182,24 @@ final class ThreadPaginationView: UIView {
         return button
     }
 
-    private func ellipsisLabel() -> UILabel {
+    /// `<span class='h-9 w-9 text-center'>...</span>`: 36 by 36, with text of the page's size (16 on a line of 24)
+    /// at the top of it.
+    private func ellipsisItem() -> UIView {
+        let host = UIView()
+        host.translatesAutoresizingMaskIntoConstraints = false
         let label = UILabel()
-        label.text = "..."
-        label.font = .nunito(ofSize: 14)
-        label.textColor = UIColor.HayaseTheme.foreground
-        label.textAlignment = .center
+        label.attributedText = CSSText.string("...", font: .nunito(ofSize: 16), color: UIColor.HayaseTheme.foreground,
+                                              lineHeight: 24, alignment: .center)
         label.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(label)
         NSLayoutConstraint.activate([
-            label.widthAnchor.constraint(equalToConstant: 36),
-            label.heightAnchor.constraint(equalToConstant: 36),
+            host.widthAnchor.constraint(equalToConstant: 36),
+            host.heightAnchor.constraint(equalToConstant: 36),
+            label.topAnchor.constraint(equalTo: host.topAnchor),
+            label.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            label.trailingAnchor.constraint(equalTo: host.trailingAnchor),
         ])
-        return label
+        return host
     }
 
     private enum ItemType {
@@ -269,10 +294,7 @@ final class ThreadCommentSkeletonView: UIView {
     }
 
     private func bar(width: CGFloat, height: CGFloat, bottom: CGFloat) -> UIView {
-        let view = UIView()
-        view.backgroundColor = UIColor.HayaseTheme.primary.withAlphaComponent(0.05)
-        view.layer.cornerRadius = height / 2
-        view.translatesAutoresizingMaskIntoConstraints = false
+        let view = HayaseSkeleton.makeBlock(cornerRadius: 4)   // `bg-primary/5 animate-pulse rounded`
         NSLayoutConstraint.activate([
             view.widthAnchor.constraint(equalToConstant: width),
             view.heightAnchor.constraint(equalToConstant: height),

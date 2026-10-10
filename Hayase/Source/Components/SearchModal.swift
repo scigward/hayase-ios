@@ -660,7 +660,7 @@ final class ExtensionSearchViewController: UIViewController {
         // Web formula: ((R*299 + G*587 + B*114) / 1000 - 128) * -1000
         // Simplified: brightness = R*0.299 + G*0.587 + B*0.114, threshold ≈ 0.502
         let brightness = r * 0.299 + g * 0.587 + b * 0.114
-        return brightness > 0.502 ? UIColor(white: 0.07, alpha: 1) : .white
+        return brightness > 0.502 ? .black : .white
     }
 
     private func resolvedBannerFallback() -> String? {

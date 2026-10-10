@@ -347,7 +347,8 @@ struct AiringScheduleEntry {
 
 struct AniListThread {
     let id: Int
-    let title: String
+    /// `thread.title`: null for a thread that has none
+    let rawTitle: String?
     let body: String?
     let userID: Int?
     let viewCount: Int
@@ -365,7 +366,7 @@ struct AniListThread {
     init?(dict: [String: Any]) {
         guard let id = dict["id"] as? Int else { return nil }
         self.id = id
-        self.title = dict["title"] as? String ?? "Thread \(id)"
+        self.rawTitle = dict["title"] as? String
         self.body = dict["body"] as? String
         self.userID = dict["userId"] as? Int
         self.viewCount = dict["viewCount"] as? Int ?? 0
@@ -384,6 +385,10 @@ struct AniListThread {
         let cats = dict["categories"] as? [[String: Any]] ?? []
         self.categories = cats.compactMap { $0["name"] as? String }.filter { $0 != "Anime" }
     }
+
+    /// What the list shows: `thread.title ?? 'Thread ' + thread.id`. The page of the thread says
+    /// `No thread title...` instead.
+    var title: String { rawTitle ?? "Thread \(id)" }
 
     var sinceString: String {
         AniListUtil.since(Date(timeIntervalSince1970: createdAt))

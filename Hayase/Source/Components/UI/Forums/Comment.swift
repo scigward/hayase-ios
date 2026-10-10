@@ -25,6 +25,7 @@ final class ThreadCommentView: UIView {
     private let avatarStack = FollowerAvatarStackView()
     private let usernameLabel = UILabel()
     private let likeStack = UIStackView()
+    private let likeCountLabel = UILabel()
     private let bodyHost = UIStackView()
     private let footerRow = UIStackView()
     private let likeButton = ThreadForumIconButton(iconName: "heart")
@@ -89,8 +90,6 @@ final class ThreadCommentView: UIView {
         avatarStack.translatesAutoresizingMaskIntoConstraints = false
         userRow.addArrangedSubview(avatarStack)
 
-        usernameLabel.font = .nunito(ofSize: 16, weight: .bold)
-        usernameLabel.textColor = UIColor.HayaseTheme.secondaryForeground
         usernameLabel.numberOfLines = 1
         usernameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         userRow.addArrangedSubview(usernameLabel)
@@ -98,7 +97,7 @@ final class ThreadCommentView: UIView {
         headerRow.addArrangedSubview(UIView())
 
         likeStack.axis = .horizontal
-        likeStack.alignment = .center
+        likeStack.alignment = .top
         likeStack.spacing = 4
         let heart = UIImageView(image: UIImage.hayaseIcon("heart", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)))
         heart.tintColor = UIColor.HayaseTheme.secondaryForeground
@@ -108,12 +107,8 @@ final class ThreadCommentView: UIView {
             heart.widthAnchor.constraint(equalToConstant: 12),
             heart.heightAnchor.constraint(equalToConstant: 12),
         ])
-        let count = UILabel()
-        count.tag = 88
-        count.font = .nunito(ofSize: 12.8)
-        count.textColor = UIColor.HayaseTheme.secondaryForeground
         likeStack.addArrangedSubview(heart)
-        likeStack.addArrangedSubview(count)
+        likeStack.addArrangedSubview(likeCountLabel)
         headerRow.addArrangedSubview(likeStack)
 
         bodyHost.axis = .vertical
@@ -144,8 +139,6 @@ final class ThreadCommentView: UIView {
         dateContainer.axis = .horizontal
         dateContainer.layoutMargins = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
         dateContainer.isLayoutMarginsRelativeArrangement = true
-        dateLabel.font = .nunito(ofSize: 9.6)
-        dateLabel.textColor = UIColor.HayaseTheme.mutedForeground
         dateContainer.addArrangedSubview(dateLabel)
         footerRow.addArrangedSubview(dateContainer)
         footerRow.addArrangedSubview(UIView())
@@ -163,9 +156,11 @@ final class ThreadCommentView: UIView {
         if let user = comment.user {
             avatarStack.configure(users: [user], avatarSize: 20, ringWidth: 0, ringColor: .clear)
         }
-        usernameLabel.text = comment.user?.name ?? "N/A"
-        (likeStack.arrangedSubviews.compactMap { $0 as? UILabel }.first { $0.tag == 88 })?.text = "\(comment.likeCount)"
-        dateLabel.text = comment.sinceString
+        usernameLabel.attributedText = CSSText.string(comment.user?.name ?? "N/A", font: .nunito(ofSize: 16, weight: .bold),
+                                                      color: UIColor.HayaseTheme.secondaryForeground, lineHeight: 20)
+        setLikeCount(comment.likeCount)
+        dateLabel.attributedText = CSSText.string(comment.sinceString, font: .nunito(ofSize: 9.6),
+                                                  color: UIColor.HayaseTheme.secondaryForeground, lineHeight: 14.4)
 
         let viewerID = Int(TrackerAccountManager.shared.viewer(for: .anilist)?.id ?? "")
         let canInteract = !isLocked && TrackerAccountManager.shared.isLoggedIn(.anilist)
@@ -217,6 +212,12 @@ final class ThreadCommentView: UIView {
         }
     }
 
+    private func setLikeCount(_ count: Int) {
+        likeCountLabel.attributedText = CSSText.string("\(count)", font: .nunito(ofSize: 12.8),
+                                                       color: UIColor.HayaseTheme.secondaryForeground,
+                                                       lineHeight: 12.8)   // `leading-none`
+    }
+
     @objc private func likeTapped() {
         onLike(comment)
     }
@@ -226,7 +227,7 @@ final class ThreadCommentView: UIView {
         if comment.id == commentID {
             comment.isLiked = isLiked
             comment.likeCount = count
-            (likeStack.arrangedSubviews.compactMap { $0 as? UILabel }.first { $0.tag == 88 })?.text = "\(count)"
+            setLikeCount(count)
             likeButton.setFilled(isLiked)
             finishLikeAttempt(commentID: commentID)
             return true

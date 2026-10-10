@@ -398,7 +398,7 @@ extension AnimeDetailViewController {
         cell.selectionStyle = .none
         let titleLabel = UILabel()
         titleLabel.text = loading ? "Loading..." : "Ooops!"
-        titleLabel.textColor = .white
+        titleLabel.textColor = UIColor.HayaseTheme.foreground
         titleLabel.font = .nunito(ofSize: 36, weight: .bold)
         titleLabel.textAlignment = .center
         let messageLabel = UILabel()

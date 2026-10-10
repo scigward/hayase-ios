@@ -219,8 +219,20 @@ final class Router {
         }
     }
 
-    func navigateToAnimeThread(animeID: Int, threadID: Int, title: String?, hostTabIndex: Int? = nil) {
+    /// `thread` is the thread as the list that was tapped has it. `+layout.ts` awaits `asyncStore(Thread, ...,
+    /// 'cache-and-network')`, which resolves as soon as the cache has data, and the list put the thread there with
+    /// every field of `ThreadFrag`: the route opens at once and the page asks the network afterwards.
+    func navigateToAnimeThread(animeID: Int, threadID: Int, title: String?, thread known: AniListThread? = nil,
+                               hostTabIndex: Int? = nil) {
         if let title { threadTitles[threadID] = title }
+
+        if let known {
+            pendingThreadNavigationID = nil
+            threadPayloads[threadID] = known
+            loadedThreadRouteIDs.insert(threadID)
+            navigate(.animeThread(animeID: animeID, threadID: threadID), hostTabIndex: hostTabIndex)
+            return
+        }
 
         let requestID = UUID()
         let sourceRoute = currentRoute

@@ -17,32 +17,6 @@ final class AniListForumClient {
 
     private init() {}
 
-    func threadDetailResult(threadID: Int,
-                            page: Int = 1,
-                            completion: @escaping (Result<AniListThreadDetailPayload, AniListRequestError>) -> Void) {
-        var fetchedThreadResult: Result<AniListThread?, AniListRequestError>?
-        var fetchedCommentsResult: Result<AniListCommentPage, AniListRequestError>?
-
-        func finishIfReady() {
-            guard let fetchedThreadResult, let fetchedCommentsResult else { return }
-            switch (fetchedThreadResult, fetchedCommentsResult) {
-            case (.success(let thread), .success(let comments)):
-                completion(.success(AniListThreadDetailPayload(thread: thread, comments: comments)))
-            case (.failure(let error), _), (_, .failure(let error)):
-                completion(.failure(error))
-            }
-        }
-
-        threadResult(threadID: threadID) { result in
-            fetchedThreadResult = result
-            finishIfReady()
-        }
-        commentsResult(threadID: threadID, page: page) { result in
-            fetchedCommentsResult = result
-            finishIfReady()
-        }
-    }
-
     @discardableResult
     func threadResult(threadID: Int,
                       completion: @escaping (Result<AniListThread?, AniListRequestError>) -> Void) -> AniListRequestToken {
@@ -66,8 +40,11 @@ final class AniListForumClient {
                         page: Int = 1,
                         completion: @escaping (Result<AniListCommentPage, AniListRequestError>) -> Void) -> AniListRequestToken? {
         let key = "comments|\(threadID)|\(page)"
+        // `client.comments` is a `queryStore` with the default request policy, `cache-first`: a page the cache has
+        // is all there is, until a mutation invalidates it
         if let cached = queue.sync(execute: { commentPageCache[key] }) {
             DispatchQueue.main.async { completion(.success(cached)) }
+            return nil
         }
 
         return requestExecutor.execute(query: AniListQueries.comments,
