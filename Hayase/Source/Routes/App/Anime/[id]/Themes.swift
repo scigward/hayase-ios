@@ -323,7 +323,7 @@ extension AnimeDetailViewController {
             artist.heightAnchor.constraint(equalToConstant: 10),
 
             version.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 28),
-            version.topAnchor.constraint(equalTo: card.topAnchor, constant: 75),
+            version.topAnchor.constraint(equalTo: card.topAnchor, constant: 76),   // `h-8 items-center` row at 64
             version.widthAnchor.constraint(equalToConstant: 16),
             version.heightAnchor.constraint(equalToConstant: 8),
 

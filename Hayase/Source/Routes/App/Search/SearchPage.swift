@@ -1345,9 +1345,15 @@ extension SearchViewController: UICollectionViewDataSource {
             }
         }
         if isShowingSkeleton {
-            return collectionView.dequeueReusableCell(
-                withReuseIdentifier: showsEpisodeCards ? SkeletonTraceCardCell.reuseID : SkeletonCardCell.reuseID,
-                for: indexPath)
+            // every skeleton mounts with its own `load-in`
+            if showsEpisodeCards {
+                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: SkeletonTraceCardCell.reuseID, for: indexPath)
+                (cell as? SkeletonTraceCardCell)?.configure(index: indexPath.item)
+                return cell
+            }
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
+            (cell as? SkeletonCardCell)?.configure(animated: true, index: indexPath.item)
+            return cell
         }
         guard let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: AnimeCollectionViewCell.reuseID,

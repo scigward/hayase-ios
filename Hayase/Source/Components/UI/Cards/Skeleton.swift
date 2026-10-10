@@ -51,6 +51,8 @@ final class SkeletonCardCell: UICollectionViewCell, InterfaceMountAnimating {
     /// `p-4` around the 290pt that the aspect ratio makes of a 152pt wide item: one point less
     /// than a card, which is 323pt.
     static let height: CGFloat = 322
+    /// `aspect-ratio: 152/290` of `.item`: what its load-in turns about the middle of
+    private static let itemHeight: CGFloat = 290
 
     private let coverPlaceholder: UIView = {
         let view = UIView()
@@ -98,6 +100,7 @@ final class SkeletonCardCell: UICollectionViewCell, InterfaceMountAnimating {
         metaPlaceholder.addSubview(metaPulse)
 
         [coverPlaceholder, titlePlaceholder, metaPlaceholder].forEach { itemStack.addArrangedSubview($0) }
+        itemStack.addArrangedSubview(UIView())   // what the aspect ratio leaves under the bars
         itemStack.axis = .vertical
         itemStack.alignment = .leading
         itemStack.spacing = 0
@@ -111,6 +114,7 @@ final class SkeletonCardCell: UICollectionViewCell, InterfaceMountAnimating {
             itemStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: AnimeCollectionViewCell.contentPadding),
             itemStack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -AnimeCollectionViewCell.contentPadding),
             itemStack.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
+            itemStack.heightAnchor.constraint(equalToConstant: Self.itemHeight),
 
             coverPlaceholder.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
             coverPlaceholder.heightAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverHeight),
@@ -182,8 +186,9 @@ final class SkeletonCardCell: UICollectionViewCell, InterfaceMountAnimating {
 }
 
 
-/// skeletontrace.svelte: a 16rem item with a 9rem picture and two bars, in `p-4`.
-final class SkeletonTraceCardCell: UICollectionViewCell {
+/// skeletontrace.svelte: a 16rem item with a 9rem picture and two bars, in `p-4`. Its bars pulse and, like
+/// every card, it runs `load-in` when it mounts.
+final class SkeletonTraceCardCell: UICollectionViewCell, InterfaceMountAnimating {
     static let reuseID = "SkeletonTraceCardCell"
 
     private let picturePulse = HayaseSkeleton.makeBlock(cornerRadius: 4)
@@ -191,26 +196,31 @@ final class SkeletonTraceCardCell: UICollectionViewCell {
     private let metaPulse = HayaseSkeleton.makeBlock(cornerRadius: 4)
     private lazy var pulseViews = [picturePulse, titlePulse, metaPulse]
 
+    /// `.item`, which carries the mount animation.
+    private let itemStack = UIStackView()
+    /// The position of the card in its row, below zero, which keys its mount in the collection view.
+    private var mountKey = -1
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
         contentView.backgroundColor = .clear
 
-        let stack = UIStackView(arrangedSubviews: [picturePulse, titlePulse, metaPulse])
-        stack.axis = .vertical
-        stack.alignment = .leading
-        stack.spacing = 0
-        stack.setCustomSpacing(16, after: picturePulse)   // mt-4
-        stack.setCustomSpacing(8, after: titlePulse)      // mt-2
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stack)
+        [picturePulse, titlePulse, metaPulse].forEach { itemStack.addArrangedSubview($0) }
+        itemStack.axis = .vertical
+        itemStack.alignment = .leading
+        itemStack.spacing = 0
+        itemStack.setCustomSpacing(16, after: picturePulse)   // mt-4
+        itemStack.setCustomSpacing(8, after: titlePulse)      // mt-2
+        itemStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(itemStack)
 
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: AnimeCollectionViewCell.contentPadding),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: AnimeCollectionViewCell.contentPadding),
-            stack.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.traceOuterWidth - 2 * AnimeCollectionViewCell.contentPadding),
+            itemStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: AnimeCollectionViewCell.contentPadding),
+            itemStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: AnimeCollectionViewCell.contentPadding),
+            itemStack.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.traceOuterWidth - 2 * AnimeCollectionViewCell.contentPadding),
 
-            picturePulse.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            picturePulse.widthAnchor.constraint(equalTo: itemStack.widthAnchor),
             picturePulse.heightAnchor.constraint(equalToConstant: AnimeCollectionViewCell.traceCoverHeight),
             titlePulse.widthAnchor.constraint(equalToConstant: 112),
             titlePulse.heightAnchor.constraint(equalToConstant: 8),
@@ -221,14 +231,32 @@ final class SkeletonTraceCardCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// `index` is the card's place in its row.
+    func configure(index: Int) {
+        mountKey = -(index + 1)
+        pulseViews.forEach { HayaseSkeleton.startPulse(on: $0) }
+        requestInterfaceMountAnimation()
+    }
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
         guard window != nil else { return }
         pulseViews.forEach { HayaseSkeleton.startPulse(on: $0) }
+        requestInterfaceMountAnimation()
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        CardLoadIn.cancel(on: itemStack)
         pulseViews.forEach { HayaseSkeleton.startPulse(on: $0) }
+    }
+
+    func requestInterfaceMountAnimation() {
+        guard window != nil, let collectionView = CardLoadIn.enclosingCollectionView(of: self) else { return }
+        collectionView.requestMountAnimation(for: self, mediaID: mountKey)
+    }
+
+    func playInterfaceLoadInAnimation(startedAt: CFTimeInterval) {
+        CardLoadIn.play(on: itemStack, startedAt: startedAt)
     }
 }

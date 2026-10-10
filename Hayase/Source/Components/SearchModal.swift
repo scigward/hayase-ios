@@ -745,8 +745,9 @@ final class ExtensionSearchViewController: UIViewController {
                 bar1.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
                 bar1.heightAnchor.constraint(equalToConstant: 16),
                 bar1.widthAnchor.constraint(equalToConstant: 160),
-                // h-2 w-28 mt-1
-                bar2.topAnchor.constraint(equalTo: bar1.bottomAnchor, constant: 4),
+                // h-2 w-28 mt-1: `justify-between` leaves 13 between the three rows (82 inside the padding, 24 + 12 + 20
+                // of them), so the row starts at 12 + 24 + 13 and its bar 4 below that
+                bar2.topAnchor.constraint(equalTo: card.topAnchor, constant: 53),
                 bar2.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
                 bar2.heightAnchor.constraint(equalToConstant: 8),
                 bar2.widthAnchor.constraint(equalToConstant: 112),

@@ -358,8 +358,10 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
                               actions: hayasePreviewCardActions())
             return cell
         case 401:
-            return collectionView.dequeueReusableCell(
+            let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
+            (cell as? SkeletonCardCell)?.configure(animated: true, index: indexPath.item)
+            return cell
         default:
             return collectionView.dequeueReusableCell(withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
         }

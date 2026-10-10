@@ -339,19 +339,16 @@ private final class HayaseChangelogSkeletonEntry: UIView {
     }
 
     private static func skeleton(width: CGFloat, height: CGFloat) -> UIView {
-        let view = UIView()
-        view.backgroundColor = UIColor.HayaseTheme.primary.withAlphaComponent(0.05)
-        view.layer.cornerRadius = min(4, height / 2)
+        let view = HayaseSkeleton.makeBlock(cornerRadius: 4)   // `bg-primary/5 animate-pulse rounded`
         view.widthAnchor.constraint(equalToConstant: width).isActive = true
         view.heightAnchor.constraint(equalToConstant: height).isActive = true
-        let pulse = CABasicAnimation(keyPath: "opacity")
-        pulse.fromValue = 1
-        pulse.toValue = 0.5
-        pulse.duration = 1
-        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        pulse.autoreverses = true
-        pulse.repeatCount = .infinity
-        view.layer.add(pulse, forKey: "hayasePulse")
         return view
+    }
+
+    /// The pulse of a view that was off screen starts again with it.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        for view in [dateSkeleton] + body.arrangedSubviews { HayaseSkeleton.startPulse(on: view) }
     }
 }

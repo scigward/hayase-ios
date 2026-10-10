@@ -390,7 +390,6 @@ private final class ProfileAvatarView: UIView {
     private let avatarSize: CGFloat
     private let imageView = UIImageView()
     private let fallbackLabel = UILabel()
-    private let skeletonView = UIView()
     private let ringLayer = CAShapeLayer()
     private let ringWidth: CGFloat
     private let ringColor: UIColor
@@ -422,8 +421,7 @@ private final class ProfileAvatarView: UIView {
         let radius = bounds.height / 2
         layer.cornerRadius = radius
         imageView.layer.cornerRadius = radius
-        skeletonView.layer.cornerRadius = radius
-        if toastAppearance { fallbackLabel.layer.cornerRadius = radius }
+        fallbackLabel.layer.cornerRadius = radius
 
         ringLayer.isHidden = ringWidth <= 0
         CATransaction.begin()
@@ -467,15 +465,14 @@ private final class ProfileAvatarView: UIView {
         } else {
             fallbackLabel.adjustsFontSizeToFitWidth = true
             fallbackLabel.minimumScaleFactor = 0.35
+            // `Avatar.Fallback`: `bg-muted flex size-full items-center justify-center rounded-full`
+            fallbackLabel.backgroundColor = UIColor.HayaseTheme.muted
+            fallbackLabel.layer.masksToBounds = true
         }
         fallbackLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(fallbackLabel)
 
-        skeletonView.backgroundColor = HayaseSkeleton.color
-        skeletonView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(skeletonView)
-
-        let fallbackInset: CGFloat = toastAppearance ? 0 : 2
+        let fallbackInset: CGFloat = 0   // `Avatar.Fallback` is `size-full`
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: topAnchor),
             imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -486,21 +483,13 @@ private final class ProfileAvatarView: UIView {
             fallbackLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: fallbackInset),
             fallbackLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -fallbackInset),
             fallbackLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -fallbackInset),
-
-            skeletonView.topAnchor.constraint(equalTo: topAnchor),
-            skeletonView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            skeletonView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            skeletonView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
     private func loadAvatar() {
         guard let urlString = user.avatarURL,
               !urlString.isEmpty,
-              let url = URL(string: urlString) else {
-            skeletonView.isHidden = true
-            return
-        }
+              let url = URL(string: urlString) else { return }
 
         let displayScale = UIScreen.main.scale
         let pixelSize = max(1, Int(ceil(avatarSize * displayScale)))
@@ -512,7 +501,7 @@ private final class ProfileAvatarView: UIView {
             return
         }
 
-        startSkeleton()
+        // `Avatar.Fallback` (the name on `bg-muted`) is what shows until the image is there, and when it is not
         imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let self else { return }
             guard let data,
@@ -523,7 +512,7 @@ private final class ProfileAvatarView: UIView {
                   ) else {
                 DispatchQueue.main.async {
                     guard self.activeAvatarURL == urlString else { return }
-                    self.stopSkeleton(showFallback: true)
+                    self.fallbackLabel.isHidden = false
                 }
                 return
             }
@@ -551,22 +540,7 @@ private final class ProfileAvatarView: UIView {
             imageView.layer.add(animation, forKey: Self.animationKey)
         }
 
-        stopSkeleton(showFallback: false)
-    }
-
-    private func startSkeleton() {
-        guard !toastAppearance else {
-            skeletonView.isHidden = true
-            return
-        }
-        skeletonView.isHidden = false
-        HayaseSkeleton.startPulse(on: skeletonView)
-    }
-
-    private func stopSkeleton(showFallback: Bool) {
-        HayaseSkeleton.stopPulse(on: skeletonView)
-        skeletonView.isHidden = true
-        fallbackLabel.isHidden = !showFallback && imageView.image != nil
+        fallbackLabel.isHidden = imageView.image != nil
     }
 
     func prepareForReuse() {
@@ -574,7 +548,6 @@ private final class ProfileAvatarView: UIView {
         imageTask?.cancel()
         imageTask = nil
         imageView.layer.removeAnimation(forKey: Self.animationKey)
-        HayaseSkeleton.stopPulse(on: skeletonView)
     }
 }
 

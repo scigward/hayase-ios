@@ -9,6 +9,8 @@
   html { color-scheme: dark; -webkit-text-size-adjust: 100%; }
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
   body { color: hsl(0 0% 98%); font-size: 14px; line-height: 20px; font-family: -apple-system, sans-serif; }
+  /* app.css: the text area has the placeholder (with its lines), OverType's own copy of it is not shown */
+  .overtype-placeholder { display: none !important; }
   /* `Markdown`'s box: `border border-input flex overflow-clip bg-transparent`, as big as the dialog gives it */
   #editor { box-sizing: border-box; display: flex; width: 100%; height: 100%; overflow: clip;
             border: 1px solid hsl(0 0% 15%); background: transparent; caret-color: hsl(0 0% 98%); }
