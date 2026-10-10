@@ -60,7 +60,11 @@ targets:
           - TorrentClientGeoIP/**
           - RichText/**
           - Twemoji/**
+          - Markdown/**
       - path: Hayase/Resources/RichText
+        type: folder
+        buildPhase: resources
+      - path: Hayase/Resources/Markdown
         type: folder
         buildPhase: resources
       - path: Hayase/Resources/Twemoji

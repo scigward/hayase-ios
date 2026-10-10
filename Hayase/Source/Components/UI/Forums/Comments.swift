@@ -30,6 +30,8 @@ final class ThreadDetailViewController: UIViewController {
     private var commentsError: String?
     private var appliedMedium: Bool?
     private var postView: ThreadPostView?
+    /// `Write.svelte` keeps the text in its `value`: the button that was used opens a writer that has it again.
+    private var drafts: [String: String] = [:]
     var routeThreadID: Int { threadID }
 
     init(threadID: Int,
@@ -349,11 +351,14 @@ final class ThreadDetailViewController: UIViewController {
     private func presentWriter(id: Int? = nil, parentCommentID: Int? = nil, value: String = "") {
         guard !(currentThread?.isLocked ?? false),
               TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
-        let writer = ThreadWriteViewController(value: value)
+        let key = "\(id ?? 0)|\(parentCommentID ?? 0)"
+        let writer = ThreadWriteViewController(value: drafts[key] ?? value)
+        writer.onChange = { [weak self] text in self?.drafts[key] = text }
         writer.onSend = { [weak self] comment in
             self?.saveComment(id: id, parentCommentID: parentCommentID, comment: comment)
         }
-        present(writer, animated: true)
+        // the dialog fades by itself
+        present(writer, animated: false)
     }
 
     /// The mutation invalidates the comments of the thread in the cache and the comments are asked for again; the
