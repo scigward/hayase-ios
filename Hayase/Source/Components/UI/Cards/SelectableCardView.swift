@@ -22,6 +22,12 @@ class SelectableCardView: UIView, UIGestureRecognizerDelegate, ActiveElementObse
     private var isHovered = false
     private var appliedSelected = false
     private var appliedPressed = false
+    /// The room around the card that the second shadow can reach (its blur of 3 and its offset of 4).
+    private static let lowerShadowReach: CGFloat = 12
+    /// `shadow-lg` is two shadows. The card's own layer has the first, `0 10px 15px -3px`; this has the second,
+    /// `0 4px 6px -4px`. A box-shadow is not painted under its box, so this one is masked to what is outside the card.
+    private let lowerShadowView = UIView()
+    private let lowerShadowMask = CAShapeLayer()
 
     /// z-position while not selected; a selected card draws above its neighbours.
     var restingZPosition: CGFloat = 0 {
@@ -37,11 +43,20 @@ class SelectableCardView: UIView, UIGestureRecognizerDelegate, ActiveElementObse
         backgroundColor = restingBackground
         layer.shadowColor = UIColor.black.cgColor
         layer.shadowOpacity = 0
-        // `shadow-lg`: `0 10px 15px -3px rgb(0 0 0 / 0.1)` is the shadow that matters (a CSS blur of 15 is a radius of
-        // 7.5 here, and the -3 is a path that is 3 smaller on every side); the second one, `0 4px 6px -4px`, would
-        // have to be drawn under the card, which a layer cannot do for itself.
+        // `shadow-lg`: `0 10px 15px -3px rgb(0 0 0 / 0.1)` (a CSS blur of 15 is a radius of 7.5 here, and the -3 is a
+        // path that is 3 smaller on every side), and `0 4px 6px -4px rgb(0 0 0 / 0.1)` in `lowerShadowView`.
         layer.shadowRadius = 7.5
         layer.shadowOffset = CGSize(width: 0, height: 10)
+
+        lowerShadowView.isUserInteractionEnabled = false
+        lowerShadowView.isHidden = true   // a mask is drawn off screen: only while the shadow is there
+        lowerShadowView.layer.shadowColor = UIColor.black.cgColor
+        lowerShadowView.layer.shadowOpacity = 0
+        lowerShadowView.layer.shadowRadius = 3
+        lowerShadowView.layer.shadowOffset = CGSize(width: 0, height: 4)
+        lowerShadowMask.fillRule = .evenOdd
+        lowerShadowView.layer.mask = lowerShadowMask
+        insertSubview(lowerShadowView, at: 0)
 
         let press = UILongPressGestureRecognizer(target: self, action: #selector(pressChanged(_:)))
         press.minimumPressDuration = 0
@@ -64,12 +79,27 @@ class SelectableCardView: UIView, UIGestureRecognizerDelegate, ActiveElementObse
             transform = selected ? CGAffineTransform(scaleX: 1.05, y: 1.05) : .identity
         }
         layer.shadowOpacity = selected ? 0.1 : 0
+        lowerShadowView.layer.shadowOpacity = selected ? 0.1 : 0
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         layer.shadowPath = UIBezierPath(roundedRect: bounds.insetBy(dx: 3, dy: 3),
                                         cornerRadius: max(0, layer.cornerRadius - 3)).cgPath
+
+        let reach = Self.lowerShadowReach
+        let radius = layer.cornerRadius
+        lowerShadowView.frame = bounds.insetBy(dx: -reach, dy: -reach)
+        let card = CGRect(origin: CGPoint(x: reach, y: reach), size: bounds.size)
+        let outside = UIBezierPath(rect: lowerShadowView.bounds)
+        outside.append(UIBezierPath(roundedRect: card, cornerRadius: radius))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        lowerShadowView.layer.shadowPath = UIBezierPath(roundedRect: card.insetBy(dx: 4, dy: 4),
+                                                        cornerRadius: max(0, radius - 4)).cgPath
+        lowerShadowMask.frame = lowerShadowView.bounds
+        lowerShadowMask.path = outside.cgPath
+        CATransaction.commit()
     }
 
     /// Clears the selected state immediately, for cell reuse.
@@ -113,15 +143,20 @@ class SelectableCardView: UIView, UIGestureRecognizerDelegate, ActiveElementObse
         // bg-accent is outside the transition list, so it switches immediately.
         backgroundColor = selected ? selectedBackground : restingBackground
         layer.zPosition = selected ? 2 : restingZPosition
+        if selected { lowerShadowView.isHidden = false }
         guard animated else {
             applySelectState(selected)
+            lowerShadowView.isHidden = !selected
             return
         }
         // `:active` brings `transition: all 0.1s ease-in-out` with it; out of it the card's own 200ms ease-out
         UIView.animate(withDuration: isPressed ? 0.1 : 0.2, delay: 0,
-                       options: [isPressed ? .curveEaseInOut : .curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
+                       options: [isPressed ? .curveEaseInOut : .curveEaseOut, .allowUserInteraction, .beginFromCurrentState],
+                       animations: {
             self.applySelectState(selected)
-        }
+        }, completion: { _ in
+            if !self.appliedSelected { self.lowerShadowView.isHidden = true }
+        })
     }
 }
 
