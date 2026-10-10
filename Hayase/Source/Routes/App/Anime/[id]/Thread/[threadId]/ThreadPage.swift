@@ -1,5 +1,5 @@
 //
-//  Page.swift
+//  ThreadPage.swift
 //  Hayase
 //
 //  Mirrors: src/routes/app/anime/[id]/thread/[threadId]/+page.svelte

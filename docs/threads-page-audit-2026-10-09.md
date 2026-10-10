@@ -301,7 +301,7 @@ Done in code, only parse-checked (there is no compiler here, so none of it has b
 - A thread opens from what the list has and is refreshed from the network, and the list takes the changed thread back (`TH-60`, `TH-61`, `TH-62`).
 - The writer is OverType in a web view inside a native bottom dialog (`TH-40` to `TH-42`).
 - Rich text bodies share one web content process and one parser, with a WOFF2 font (`TH-53`, step 1).
-- The files follow the interface: `Forums/Threads.swift`, `Forums/Comments.swift` (`ThreadCommentsView` with its skeleton and states), `Forums/Comment.swift`, `Forums/Write.swift`, and `Routes/App/Anime/[id]/Thread/[threadId]/` with `Page.swift` and `ThreadRouteLoader.swift` (`+layout.ts`) (`TH-70`).
+- The files follow the interface: `Forums/Threads.swift`, `Forums/Comments.swift` (`ThreadCommentsView` with its skeleton and states), `Forums/Comment.swift`, `Forums/Write.swift`, and `Routes/App/Anime/[id]/Thread/[threadId]/` with `ThreadPage.swift` (`+page.svelte`) and `ThreadRouteLoader.swift` (`+layout.ts`) (`TH-70`). The page is not called `Page.swift`: a Swift module cannot have two files with that name, and `Anime/[id]/Page.swift` has it (the other routes put their route name in front, as `SchedulePage.swift` does).
 
 Done after that (also only parse-checked): the categories wrap (`TH-06`, in the cards and in the post: the date and the categories share the row as flex items do, and the card grows up to `max-h-28`) and `shadow-lg` has both of its shadows (`TH-10`).
 
