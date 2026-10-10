@@ -55,6 +55,268 @@ final class ThreadBadgeLabel: UILabel {
     }
 }
 
+// MARK: - ThreadFlex
+
+/// The shrinking of flex items (`flex: 0 1 auto`, `min-width: auto`) that do not fit their row: each gives up room in
+/// proportion to its width, and none goes below its min-content width (one that would is kept there and the others
+/// give up the rest).
+enum ThreadFlex {
+    static func shrink(bases: [CGFloat], mins: [CGFloat], into width: CGFloat) -> [CGFloat] {
+        var sizes = bases
+        var frozen = [Bool](repeating: false, count: bases.count)
+        while true {
+            let open = bases.indices.filter { !frozen[$0] }
+            let taken = bases.indices.filter { frozen[$0] }.reduce(CGFloat(0)) { $0 + sizes[$1] }
+            let openBase = open.reduce(CGFloat(0)) { $0 + bases[$1] }
+            let free = width - taken - openBase
+            guard free < 0, openBase > 0 else {
+                for index in open { sizes[index] = bases[index] }
+                return sizes
+            }
+            let targets = open.map { bases[$0] + free * bases[$0] / openBase }
+            let tooSmall = open.enumerated().filter { targets[$0.offset] < mins[$0.element] }.map { $0.element }
+            if tooSmall.isEmpty {
+                for (offset, index) in open.enumerated() { sizes[index] = targets[offset] }
+                return sizes
+            }
+            for index in tooSmall {
+                sizes[index] = mins[index]
+                frozen[index] = true
+            }
+        }
+    }
+}
+
+// MARK: - ThreadBadgeFlowView
+
+/// The categories: `ml-auto inline-flex flex-wrap gap-2 items-end`. They are in a line while the room allows, the rest
+/// go on the lines below (`gap-2` between lines too), each at the bottom of its line, and the lines share the height
+/// the row gives the container (`align-content: stretch`).
+final class ThreadBadgeFlowView: UIView {
+    private static let gap: CGFloat = 8
+    private var badges: [ThreadBadgeLabel] = []
+    private var widths: [CGFloat] = []
+    private var badgeHeight: CGFloat = 0
+
+    func setBadges(_ new: [ThreadBadgeLabel]) {
+        badges.forEach { $0.removeFromSuperview() }
+        badges = new
+        widths = new.map { $0.intrinsicContentSize.width }
+        badgeHeight = new.first?.intrinsicContentSize.height ?? 0
+        for badge in new {
+            badge.translatesAutoresizingMaskIntoConstraints = true
+            addSubview(badge)
+        }
+        setNeedsLayout()
+    }
+
+    /// The width of all of them in one line
+    var maxContentWidth: CGFloat {
+        widths.reduce(0, +) + Self.gap * CGFloat(max(0, widths.count - 1))
+    }
+
+    /// The width of the widest of them: no less than that
+    var minContentWidth: CGFloat {
+        widths.max() ?? 0
+    }
+
+    private func lines(for width: CGFloat) -> [[Int]] {
+        var result: [[Int]] = []
+        var current: [Int] = []
+        var x: CGFloat = 0
+        for index in widths.indices {
+            if !current.isEmpty, x + Self.gap + widths[index] > width + 0.01 {
+                result.append(current)
+                current = []
+            }
+            x = current.isEmpty ? widths[index] : x + Self.gap + widths[index]
+            current.append(index)
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
+    }
+
+    func contentHeight(for width: CGFloat) -> CGFloat {
+        let count = lines(for: width).count
+        return CGFloat(count) * badgeHeight + Self.gap * CGFloat(max(0, count - 1))
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let rows = lines(for: bounds.width)
+        guard !rows.isEmpty else { return }
+        let natural = CGFloat(rows.count) * badgeHeight + Self.gap * CGFloat(rows.count - 1)
+        let lineHeight = badgeHeight + max(0, bounds.height - natural) / CGFloat(rows.count)
+        var y: CGFloat = 0
+        for line in rows {
+            var x: CGFloat = 0
+            for index in line {
+                badges[index].frame = CGRect(x: x, y: y + lineHeight - badgeHeight, width: widths[index], height: badgeHeight)
+                x += widths[index] + Self.gap
+            }
+            y += lineHeight + Self.gap
+        }
+    }
+}
+
+// MARK: - ThreadFooterRowView
+
+/// The last row of a card and of the post: `flex w-full justify-between mt-auto text-[9.6px]`. On the left an item
+/// that is a few fixed views and the date (`since()`), on the right the categories. When they do not fit together both
+/// give up room in proportion to their sizes (`ThreadFlex`), the categories go on more lines and the date on more lines
+/// of its own (it cannot be narrower than its longest word), and the row is as tall as the taller of the two.
+final class ThreadFooterRowView: UIView {
+    enum Alignment { case bottom, center }
+
+    private let topInset: CGFloat
+    private let itemSpacing: CGFloat
+    private let dateGap: CGFloat
+    private let leadingStack = UIStackView()
+    private let dateLabel = UILabel()
+    private let flowView = ThreadBadgeFlowView()
+    private var leadingItems: [UIView] = []
+    private var dateText = NSAttributedString()
+    private var leadingWidth: NSLayoutConstraint!
+    private var leadingHeight: NSLayoutConstraint!
+    private var flowWidth: NSLayoutConstraint!
+    private var flowHeight: NSLayoutConstraint!
+    private var dateHeight: NSLayoutConstraint!
+    private var rowHeight: NSLayoutConstraint!
+    /// The width of the last measure; before there is one, room for everything in a line.
+    private var measuredWidth: CGFloat = 10_000
+
+    /// The height the row would have if nothing cut it
+    private(set) var contentHeight: CGFloat = 0
+    /// The row is cut here (a card's `max-h-28 overflow-hidden`)
+    var maxHeight: CGFloat = .greatestFiniteMagnitude
+    /// The row has another height than it had: whatever holds it has to measure again.
+    var onContentHeightChange: (() -> Void)?
+
+    /// `topInset` is the `pt-2` of the leading item. `itemSpacing` is between its fixed views and `dateGap` between them
+    /// and the date.
+    init(alignment: Alignment, topInset: CGFloat, itemSpacing: CGFloat, dateGap: CGFloat) {
+        self.topInset = topInset
+        self.itemSpacing = itemSpacing
+        self.dateGap = dateGap
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+
+        leadingStack.axis = .horizontal
+        leadingStack.alignment = alignment == .bottom ? .bottom : .center
+        leadingStack.spacing = itemSpacing
+        leadingStack.translatesAutoresizingMaskIntoConstraints = false
+        dateLabel.numberOfLines = 0
+        dateLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        dateLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        leadingStack.addArrangedSubview(dateLabel)
+        flowView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(leadingStack)
+        addSubview(flowView)
+
+        leadingWidth = leadingStack.widthAnchor.constraint(equalToConstant: 0)
+        leadingHeight = leadingStack.heightAnchor.constraint(equalToConstant: 0)
+        flowWidth = flowView.widthAnchor.constraint(equalToConstant: 0)
+        flowHeight = flowView.heightAnchor.constraint(equalToConstant: 0)
+        dateHeight = dateLabel.heightAnchor.constraint(equalToConstant: 0)
+        rowHeight = heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            leadingStack.topAnchor.constraint(equalTo: topAnchor, constant: topInset),
+            leadingStack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            leadingWidth, leadingHeight,
+            flowView.topAnchor.constraint(equalTo: topAnchor),
+            flowView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            flowWidth, flowHeight,
+            dateHeight, rowHeight,
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// The views before the date, each of its own size
+    func setLeadingItems(_ items: [UIView]) {
+        leadingItems.forEach { item in
+            leadingStack.removeArrangedSubview(item)
+            item.removeFromSuperview()
+        }
+        leadingItems = items
+        for (index, item) in items.enumerated() {
+            leadingStack.insertArrangedSubview(item, at: index)
+        }
+        if let last = items.last { leadingStack.setCustomSpacing(dateGap, after: last) }
+        update(width: measuredWidth)
+    }
+
+    func setContent(date: NSAttributedString, badges: [ThreadBadgeLabel]) {
+        dateText = date
+        dateLabel.attributedText = date
+        flowView.setBadges(badges)
+        update(width: measuredWidth)
+    }
+
+    private var dateLineHeight: CGFloat {
+        guard dateText.length > 0,
+              let style = dateText.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle,
+              style.maximumLineHeight > 0 else { return 14.4 }
+        return style.maximumLineHeight
+    }
+
+    private var longestWordWidth: CGFloat {
+        guard dateText.length > 0 else { return 0 }
+        let attributes = dateText.attributes(at: 0, effectiveRange: nil)
+        return dateText.string.split(separator: " ")
+            .map { ceil(NSAttributedString(string: String($0), attributes: attributes).size().width) }
+            .max() ?? 0
+    }
+
+    private func lineCount(width: CGFloat) -> Int {
+        guard dateText.length > 0, width > 0 else { return 1 }
+        let rect = dateText.boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                                         options: [.usesLineFragmentOrigin], context: nil)
+        return max(1, Int((rect.height / dateLineHeight).rounded()))
+    }
+
+    /// Measures the row for a width: what the leading item and the categories get of it and how tall the row has to be.
+    @discardableResult
+    func update(width available: CGFloat) -> CGFloat {
+        measuredWidth = available
+        let visible = leadingItems.filter { !$0.isHidden }
+        let sizes = visible.map { $0.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize) }
+        var fixed: CGFloat = 0
+        for size in sizes { fixed += size.width }
+        if !visible.isEmpty { fixed += itemSpacing * CGFloat(visible.count - 1) + dateGap }
+        let fixedHeight = sizes.map { $0.height }.max() ?? 0
+
+        let leadingBasis = fixed + ceil(dateText.size().width)
+        let leadingMin = min(fixed + longestWordWidth, leadingBasis)
+        let flowBasis = flowView.maxContentWidth
+        let flowMin = min(flowView.minContentWidth, flowBasis)
+        let shares = ThreadFlex.shrink(bases: [leadingBasis, flowBasis], mins: [leadingMin, flowMin], into: available)
+
+        let textHeight = CGFloat(lineCount(width: shares[0] - fixed)) * dateLineHeight
+        let height = max(topInset + max(fixedHeight, textHeight), flowView.contentHeight(for: shares[1]))
+
+        let before = rowHeight.constant
+        leadingWidth.constant = shares[0]
+        leadingHeight.constant = max(0, height - topInset)
+        dateHeight.constant = textHeight
+        flowWidth.constant = shares[1]
+        flowHeight.constant = height
+        contentHeight = height
+        clipsToBounds = maxHeight < .greatestFiniteMagnitude
+        rowHeight.constant = min(height, maxHeight)
+        if abs(rowHeight.constant - before) > 0.5 { onContentHeightChange?() }
+        return height
+    }
+
+    override func layoutSubviews() {
+        // the width the row really has, which is not always the one it was measured for
+        if bounds.width > 0, abs(bounds.width - measuredWidth) > 0.5 {
+            update(width: bounds.width)
+        }
+        super.layoutSubviews()
+    }
+}
+
 // MARK: - ThreadStatsView
 
 /// The likes, views, replies and lock of a thread: `flex ml-2 leading-none`, 12px icons with `mr-1` and the numbers
@@ -254,11 +516,16 @@ final class ThreadCardView: SelectableCardView {
 
     private let titleLabel = UILabel()
     private let statsView = ThreadStatsView()
-    private let footerLabel = UILabel()
     private let avatarView = ThreadAvatarView()
-    /// `pt-2 flex items-end`: the avatar (`mr-2`) and the date, at the bottom of the row
-    private let footerStack = UIStackView()
-    private let badgeStack = UIStackView()
+    /// `flex w-full justify-between mt-auto text-[9.6px]`: the avatar (`mr-2`) and the date under `pt-2`, and the
+    /// categories, which go on more lines when the card is narrow
+    private let footerRow = ThreadFooterRowView(alignment: .bottom, topInset: 8, itemSpacing: 8, dateGap: 8)
+    private var heightConstraint: NSLayoutConstraint!
+
+    /// `py-3`, the title (19.2) and its `mb-2`: where the last row starts
+    private static let footerTop: CGFloat = 39.2
+    private static let maxHeight: CGFloat = 112   // `max-h-28`, which cuts what is below it
+    private static let padding: CGFloat = 32      // `px-4`
 
     init() {
         // Threads.svelte: bg-muted, select:bg-accent
@@ -283,29 +550,22 @@ final class ThreadCardView: SelectableCardView {
 
         titleLabel.numberOfLines = 1
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        footerLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         statsView.setContentCompressionResistancePriority(.required, for: .horizontal)
         statsView.setContentHuggingPriority(.required, for: .horizontal)
 
-        footerStack.axis = .horizontal
-        footerStack.alignment = .bottom
-        footerStack.spacing = 8
-        footerStack.addArrangedSubview(avatarView)
-        footerStack.addArrangedSubview(footerLabel)
+        footerRow.maxHeight = Self.maxHeight - Self.footerTop
+        footerRow.onContentHeightChange = { [weak self] in self?.applyHeight() }
 
-        badgeStack.axis = .horizontal
-        badgeStack.alignment = .bottom
-        badgeStack.spacing = 8
-
-        [titleLabel, statsView, footerStack, badgeStack].forEach {
+        [titleLabel, statsView, footerRow].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
 
+        heightConstraint = heightAnchor.constraint(equalToConstant: Self.footerTop + 24 + 12)
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(lessThanOrEqualToConstant: 112),   // `max-h-28`
+            heightConstraint,
 
-            // `py-3 px-4`; the title is `mb-2` above the row, which has `pt-2`
+            // `py-3 px-4`; the title is `mb-2` above the row
             titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: statsView.leadingAnchor, constant: -8),
@@ -314,14 +574,9 @@ final class ThreadCardView: SelectableCardView {
             statsView.topAnchor.constraint(equalTo: topAnchor, constant: 14),
             statsView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
 
-            footerStack.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
-            footerStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            footerStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            footerStack.trailingAnchor.constraint(lessThanOrEqualTo: badgeStack.leadingAnchor, constant: -8),
-
-            badgeStack.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 8),
-            badgeStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            badgeStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            footerRow.topAnchor.constraint(equalTo: topAnchor, constant: Self.footerTop),
+            footerRow.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            footerRow.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
         ])
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(cardTapped))
@@ -329,11 +584,17 @@ final class ThreadCardView: SelectableCardView {
         onDPadClick = { [weak self] in self?.cardTapped() }
     }
 
+    /// As tall as what is in it, up to `max-h-28`, with `py-3` below the last row.
+    private func applyHeight() {
+        heightConstraint.constant = min(Self.maxHeight, Self.footerTop + footerRow.contentHeight + 12)
+    }
+
     @objc private func cardTapped() {
         onTap?(threadID)
     }
 
-    func configure(with thread: AniListThread, badgeColors: ThreadBadgeColors) {
+    /// `width` is the width of the card in its grid; the last row is measured for it.
+    func configure(with thread: AniListThread, badgeColors: ThreadBadgeColors, width: CGFloat) {
         threadID = thread.id
         titleLabel.attributedText = CSSText.string(thread.title, font: .nunito(ofSize: 12.8, weight: .bold),
                                                    color: UIColor.HayaseTheme.secondaryForeground, lineHeight: 19.2)
@@ -341,14 +602,14 @@ final class ThreadCardView: SelectableCardView {
         titleLabel.attachTooltip(thread.title)
         statsView.configure(likes: thread.likeCount, views: thread.viewCount, replies: thread.replyCount, locked: thread.isLocked)
 
-        footerLabel.attributedText = CSSText.string(thread.sinceString, font: .nunito(ofSize: 9.6),
-                                                    color: UIColor.HayaseTheme.secondaryForeground, lineHeight: 14.4)
         avatarView.configure(user: thread.user)
-
-        badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for category in thread.categories {
-            badgeStack.addArrangedSubview(ThreadBadgeLabel.make(title: category, colors: badgeColors))
-        }
+        footerRow.setLeadingItems(thread.user == nil ? [] : [avatarView])
+        footerRow.setContent(date: CSSText.string(thread.sinceString, font: .nunito(ofSize: 9.6),
+                                                  color: UIColor.HayaseTheme.secondaryForeground, lineHeight: 14.4,
+                                                  lineBreak: .byWordWrapping),
+                             badges: thread.categories.map { ThreadBadgeLabel.make(title: $0, colors: badgeColors) })
+        if width > Self.padding { footerRow.update(width: width - Self.padding) }
+        applyHeight()
 
         accessibilityLabel = ([thread.title, "\(thread.likeCount)", "\(thread.viewCount)", "\(thread.replyCount)",
                                thread.sinceString] + thread.categories).joined(separator: ", ")
@@ -359,8 +620,8 @@ final class ThreadCardView: SelectableCardView {
         avatarView.isHidden = true
         titleLabel.attributedText = nil
         statsView.configure(likes: 0, views: 0, replies: 0, locked: false)
-        footerLabel.attributedText = nil
-        badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        footerRow.setLeadingItems([])
+        footerRow.setContent(date: NSAttributedString(), badges: [])
         accessibilityLabel = nil
         threadID = 0
         onTap = nil
@@ -445,13 +706,14 @@ final class ThreadPairCell: UITableViewCell, CardOverflowRendering {
 
     /// `singleTrack` lays the row out as one full-width column. Otherwise a row
     /// without a right thread keeps its empty second column, as the grid does.
-    func configure(left: AniListThread, right: AniListThread?, singleTrack: Bool, badgeColors: ThreadBadgeColors) {
-        leftCard.configure(with: left, badgeColors: badgeColors)
+    func configure(left: AniListThread, right: AniListThread?, singleTrack: Bool, badgeColors: ThreadBadgeColors,
+                   cardWidth: CGFloat) {
+        leftCard.configure(with: left, badgeColors: badgeColors, width: cardWidth)
         leftCard.onTap = { [weak self] id in self?.onTapThread?(id) }
 
         rightContainer.isHidden = singleTrack
         if let right = right {
-            rightCard.configure(with: right, badgeColors: badgeColors)
+            rightCard.configure(with: right, badgeColors: badgeColors, width: cardWidth)
             rightCard.onTap = { [weak self] id in self?.onTapThread?(id) }
             rightCard.isHidden = false
         } else {
@@ -574,8 +836,10 @@ extension AnimeDetailViewController {
         let leftIdx = indexPath.row * cols
         guard let leftThread = threads[safe: leftIdx] else { return cell }
         let rightThread = cols >= 2 ? threads[safe: leftIdx + 1] : nil
+        // the width of a track of the grid: the card is measured for it
+        let cardWidth = cols == 1 ? pageGridWidth : (pageGridWidth - Self.threadGap) / 2
         cell.configure(left: leftThread, right: rightThread, singleTrack: cols == 1,
-                       badgeColors: ThreadBadgeColors(coverColor: animeItem?.coverColor))
+                       badgeColors: ThreadBadgeColors(coverColor: animeItem?.coverColor), cardWidth: cardWidth)
         cell.applyPageSideInset(Self.interfacePageSideInset(for: viewportWidth),
                                 isFirstRow: indexPath.row == 0, isLastRow: indexPath.row == rows - 1)
         cell.onTapThread = { [weak self] threadID in

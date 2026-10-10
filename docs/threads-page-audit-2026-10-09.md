@@ -303,9 +303,9 @@ Done in code, only parse-checked (there is no compiler here, so none of it has b
 - Rich text bodies share one web content process and one parser, with a WOFF2 font (`TH-53`, step 1).
 - The files follow the interface: `Forums/Threads.swift`, `Forums/Comments.swift` (`ThreadCommentsView` with its skeleton and states), `Forums/Comment.swift`, `Forums/Write.swift`, and `Routes/App/Anime/[id]/Thread/[threadId]/` with `Page.swift` and `ThreadRouteLoader.swift` (`+layout.ts`) (`TH-70`).
 
+Done after that (also only parse-checked): the categories wrap (`TH-06`, in the cards and in the post: the date and the categories share the row as flex items do, and the card grows up to `max-h-28`) and `shadow-lg` has both of its shadows (`TH-10`).
+
 Not done:
 
-- `TH-06`: category badges do not wrap onto a second line when there are many (`flex-wrap`).
-- `TH-10`: the second layer of `shadow-lg` is one layer only.
 - `TH-29` (the `...` item is written as measured) and `TH-63` (the scroll offset when a thread opens or closes) need a device.
 - `TH-53` step 2 (only the bodies near the screen keep a live view): after the shared renderer has been tried on a device.

@@ -351,13 +351,11 @@ final class ThreadPostView: UIView {
     private let statsHost = UIView()
     private let statsView = ThreadStatsView()
     private let bodyHost = UIStackView()
-    private let footerRow = UIStackView()
-    private let footerLeading = UIStackView()
+    /// `flex w-full justify-between mt-auto text-[9.6px]`: the buttons (`mr-1`) and the date (`ml-2`), and the categories,
+    /// which go on more lines when the post is narrow
+    private let footerRow = ThreadFooterRowView(alignment: .center, topInset: 0, itemSpacing: 4, dateGap: 8)
     private let likeButton = ThreadForumIconButton(iconName: "heart")
     private let replyButton = ThreadForumIconButton(iconName: "reply")
-    private let dateLabel = UILabel()
-    private let dateContainer = UIStackView()
-    private let badgeStack = UIStackView()
     private var bodyHeightConstraint: NSLayoutConstraint?
     private var shownBody: String?
     private var shownBadgeColors: ThreadBadgeColors?
@@ -422,35 +420,12 @@ final class ThreadPostView: UIView {
         bodyHost.axis = .vertical
         rootStack.addArrangedSubview(bodyHost)
 
-        footerRow.axis = .horizontal
-        footerRow.alignment = .bottom
-        footerRow.distribution = .fill
-        footerRow.spacing = 8
-        rootStack.addArrangedSubview(footerRow)
-
-        footerLeading.axis = .horizontal
-        footerLeading.alignment = .center
-        footerLeading.spacing = 4
-        footerRow.addArrangedSubview(footerLeading)
-
         likeButton.addTarget(self, action: #selector(likeTapped), for: .touchUpInside)
-        footerLeading.addArrangedSubview(likeButton)
-
         replyButton.addTarget(self, action: #selector(replyTapped), for: .touchUpInside)
-        footerLeading.addArrangedSubview(replyButton)
-
-        dateContainer.axis = .horizontal
-        dateContainer.layoutMargins = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
-        dateContainer.isLayoutMarginsRelativeArrangement = true
-        dateContainer.addArrangedSubview(dateLabel)
-        footerLeading.addArrangedSubview(dateContainer)
-
-        footerRow.addArrangedSubview(UIView())
-
-        badgeStack.axis = .horizontal
-        badgeStack.alignment = .bottom
-        badgeStack.spacing = 8
-        footerRow.addArrangedSubview(badgeStack)
+        footerRow.setLeadingItems([likeButton, replyButton])
+        // more lines of categories make the post taller, and the page has to be measured again
+        footerRow.onContentHeightChange = { [weak self] in self?.onContentHeightChange?() }
+        rootStack.addArrangedSubview(footerRow)
 
         NSLayoutConstraint.activate([
             rootStack.topAnchor.constraint(equalTo: topAnchor, constant: 24),
@@ -491,8 +466,6 @@ final class ThreadPostView: UIView {
                             replies: thread?.replyCount ?? 0,
                             locked: thread?.isLocked ?? false,
                             liked: thread?.isLiked ?? false)
-        dateLabel.attributedText = CSSText.string(thread?.sinceString ?? "", font: .nunito(ofSize: 9.6),
-                                                  color: UIColor.HayaseTheme.secondaryForeground, lineHeight: 14.4)
 
         let canInteract = !(thread?.isLocked ?? false) && TrackerAccountManager.shared.isLoggedIn(.anilist)
         canLike = canInteract && thread != nil
@@ -521,15 +494,12 @@ final class ThreadPostView: UIView {
             }
         }
 
-        badgeStack.arrangedSubviews.forEach { view in
-            badgeStack.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-        if let shownBadgeColors {
-            for category in thread?.categories ?? [] {
-                badgeStack.addArrangedSubview(ThreadBadgeLabel.make(title: category, colors: shownBadgeColors))
-            }
-        }
+        footerRow.setContent(date: CSSText.string(thread?.sinceString ?? "", font: .nunito(ofSize: 9.6),
+                                                  color: UIColor.HayaseTheme.secondaryForeground, lineHeight: 14.4,
+                                                  lineBreak: .byWordWrapping),
+                             badges: shownBadgeColors.map { colors in
+            (thread?.categories ?? []).map { ThreadBadgeLabel.make(title: $0, colors: colors) }
+        } ?? [])
     }
 
     func updateLike(isLiked: Bool, count: Int) {
