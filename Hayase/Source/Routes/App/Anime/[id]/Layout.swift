@@ -2461,8 +2461,18 @@ class AnimeDetailViewController: UIViewController {
     /// UITableView animates reloaded rows even with `.none`. Every section reload
     /// on the anime page goes through here.
     func reloadSectionsWithoutAnimation(_ sections: [Section]) {
+        // A table that is updated has to be told about every section whose rows changed, or it stops the app
+        // ("invalid number of rows in section"). The page of episodes follows the list entry (`applyViewerState`), so
+        // the entry that comes with the page of the media can change the rows of the episodes while only the
+        // sections of that payload are reloaded.
+        var reloaded = Set(sections)
+        for section in Section.allCases where !reloaded.contains(section) {
+            if tableView.numberOfRows(inSection: section.rawValue) != self.tableView(tableView, numberOfRowsInSection: section.rawValue) {
+                reloaded.insert(section)
+            }
+        }
         UIView.performWithoutAnimation {
-            tableView.reloadSections(IndexSet(sections.map(\.rawValue)), with: .none)
+            tableView.reloadSections(IndexSet(reloaded.map(\.rawValue)), with: .none)
         }
     }
 
