@@ -670,7 +670,9 @@ final class HayaseSidebarController: UIViewController {
         let usesTransition = usesViewTransition(for: route, kind: kind, animated: animated)
         // the swipe stage already showed the move
         let uiAnimated = animated && historySwipe == nil
-        let navigationAnimated = uiAnimated && !usesTransition
+        // The page itself only moves for iOS's own back and forward; a goto() without a view transition (leaving the
+        // fullscreen player) swaps it at once, it never slides.
+        let navigationAnimated = uiAnimated && !usesTransition && kind != .push && kind != .replace
 
         let performRouteChange: (Bool) -> Void = { [weak self] shouldMinimizePlayer in
             guard let self else { return }

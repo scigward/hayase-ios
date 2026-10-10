@@ -65,6 +65,9 @@ final class MiniPlayerManager {
     /// Snap animation (Hayase: `transition-transform duration-[500ms]
     /// ease-[cubic-bezier(0.3,1.5,0.8,1)]`).
     private let snapDuration: TimeInterval = 0.5
+    private static let fadeInKey = "miniPlayerFadeIn"
+    /// The key of the rise from the bottom edge, which a drag or a snap takes over from.
+    private static let riseKey = "miniPlayerRise"
     /// How much of the video is visible when tucked to the edge (Hayase: `.paused
     /// { --padding-right: calc(100% - 3rem) }` leaves 3rem of the box, which is 2rem of
     /// video once the `px-4` padding is taken off).
@@ -238,13 +241,15 @@ final class MiniPlayerManager {
         isSnappedToRight = true
         isSnappedToTop = false
         repositionContainer()
-        container.alpha = fadeIn ? 0 : 1
+        container.alpha = 1
         if fadeIn {
-            UIViewPropertyAnimator(duration: 0.25,
-                                   controlPoint1: CGPoint(x: 0.25, y: 0.1),
-                                   controlPoint2: CGPoint(x: 0.25, y: 1)) {
-                container.alpha = 1
-            }.startAnimation()
+            // Core Animation, because the route transition makes its changes with UIView animations off
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = 0.25
+            fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+            container.layer.add(fade, forKey: Self.fadeInKey)
         }
 
         // Flag to prevent viewWillDisappear from tearing down the player.
@@ -270,6 +275,16 @@ final class MiniPlayerManager {
         } else {
             finishMinimize()
         }
+
+        // wrapper.svelte: the class change is a `transition-transform` from no transform to the place of the
+        // mini-player (`translate3d(0, -1rem, 0)`, further right while paused), so it rises from the bottom edge
+        // with the same bounce.
+        let rise = CABasicAnimation(keyPath: "position")
+        rise.fromValue = NSValue(cgPoint: CGPoint(x: revealedFrame.midX, y: revealedFrame.midY + edgePadding))
+        rise.toValue = NSValue(cgPoint: container.layer.position)
+        rise.duration = snapDuration
+        rise.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 1.5, 0.8, 1)
+        container.layer.add(rise, forKey: Self.riseKey)
 
         // Persist session state so the mini-player can be restored on relaunch
         // (Hayase: server.active persists via the store).
@@ -655,6 +670,7 @@ final class MiniPlayerManager {
                 animator.finishAnimation(at: .current)
             }
             settleAnimator = nil
+            container.layer.removeAnimation(forKey: Self.riseKey)
             isDragging = true
             // If tucked, un-tuck so the drag starts from wherever the container is.
             if isTucked { isTucked = false }
@@ -736,6 +752,7 @@ final class MiniPlayerManager {
               let host = hostView,
               !isDragging, !isRestoring else { return }
         isTucked = (isPaused ?? (activePlayer?.isPaused == true)) && !isPressed && !isRevealedForInteraction
+        container.layer.removeAnimation(forKey: Self.riseKey)
         var frame = revealedFrame
         if isTucked {
             frame.origin.x = isSnappedToRight ? host.bounds.width - peekWidth : -(frame.width - peekWidth)
