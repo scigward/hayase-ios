@@ -2,6 +2,8 @@
 
 Production resources used by AniListRichTextView's existing WKWebView, not build or verification scripts. All parser code is bundled; no CDN or npm install is needed in Codemagic or at app runtime.
 
+How it runs: every body (a post, a comment, a profile description) is a `WKWebView` of its own, and they share one `WKProcessPool` and one data store, so they are one web content process. Only `RichTextRenderer` (a web view that is never shown) loads marked, DOMPurify and `AniListRichText.js`; a body view is given the sanitised HTML it made of the text and draws it with no script of its own but the one that measures its height. The page of a body inlines `Nunito-Variable.woff2` (the glyphs and the weight axis of `Fonts/Nunito-Variable.ttf`, as WOFF2: 101 KB instead of 277 KB).
+
 Reference: hayase-app/interface cde83e26b84d632494c446a45053851c93b593d2, src/lib/components/Shadow.svelte and pnpm-lock.yaml.
 
 - marked.umd.js: marked 18.0.6, npm package lib/marked.umd.js (MIT; marked-LICENSE.txt).

@@ -5,7 +5,11 @@ import UIKit
 import WebKit
 
 /// Shared host for the exact parser engines used by interface/Shadow.svelte.
-/// Raw user content is passed as JSON to a bundled script, never interpolated into HTML.
+///
+/// A body is drawn by a web view of its own (it scrolls, selects, plays and folds like a page), and a thread has
+/// tens of them. They all share one process pool and one data store, so they are one web content process, and
+/// none of them carries the parser: `RichTextRenderer` is the one web view that has marked and DOMPurify, and a
+/// body view is given what it made of the text: plain, sanitised HTML.
 class AniListRichTextView: UIView, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
     enum Kind { case thread, comment, profile }
     var onHeightChange: ((CGFloat) -> Void)?
@@ -14,14 +18,19 @@ class AniListRichTextView: UIView, WKScriptMessageHandler, WKNavigationDelegate,
     private let kind: Kind
     private var lastHeight: CGFloat = -1
     private var documentLoaded = false
-    private static let baseURL = URL(string: "https://hayase-rich-text.invalid/")!
+    private var loadedDocument = ""
+    fileprivate static let baseURL = URL(string: "https://hayase-rich-text.invalid/")!
+    /// One process for every body of the app, instead of one for each.
+    fileprivate static let processPool = WKProcessPool()
+    fileprivate static let dataStore = WKWebsiteDataStore.nonPersistent()
 
     init(html: String?, kind: Kind) {
         self.kind = kind
         let configuration = WKWebViewConfiguration()
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
-        configuration.websiteDataStore = .nonPersistent()
+        configuration.processPool = AniListRichTextView.processPool
+        configuration.websiteDataStore = AniListRichTextView.dataStore
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init(frame: .zero)
         backgroundColor = .clear
@@ -46,50 +55,49 @@ class AniListRichTextView: UIView, WKScriptMessageHandler, WKNavigationDelegate,
         ])
         let controller = configuration.userContentController
         controller.add(RichTextWeakMessageHandler(self), contentWorld: .defaultClient, name: "height")
-        controller.add(RichTextWeakMessageHandler(self), contentWorld: .defaultClient, name: "renderError")
+        controller.addUserScript(WKUserScript(source: Self.measureScript, injectionTime: .atDocumentEnd,
+                                             forMainFrameOnly: true, in: .defaultClient))
         let content = html ?? (kind == .profile ? "No user description" : "")
-        let encoded = (try? JSONEncoder().encode(content)).flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
-        let mount = """
-        const root = document.getElementById('content');
-        try { root.innerHTML = window.HayaseRichText.render(\(encoded)); }
-        catch (error) {
-          root.textContent = \(encoded);
-          window.webkit.messageHandlers.renderError.postMessage(String(error));
+        RichTextRenderer.shared.render(content) { [weak self] sanitized in
+            guard let self else { return }
+            // a parser that did not run leaves the text as it is
+            loadedDocument = Self.document(kind: kind, body: sanitized ?? Self.plainText(content))
+            webView.loadHTMLString(loadedDocument, baseURL: Self.baseURL)
         }
-        let scheduled = false;
-        const sendHeight = () => {
-          if (scheduled) return;
-          scheduled = true;
-          requestAnimationFrame(() => {
-            scheduled = false;
-            const style = getComputedStyle(document.body);
-            // Measure content, not body.scrollHeight (which cannot shrink below the viewport).
-            const height = Math.ceil(root.getBoundingClientRect().height +
-              parseFloat(style.paddingTop) + parseFloat(style.paddingBottom));
-            window.webkit.messageHandlers.height.postMessage(height);
-          });
-        };
-        new ResizeObserver(sendHeight).observe(root);
-        root.addEventListener('load', sendHeight, true);
-        root.addEventListener('error', sendHeight, true);
-        root.addEventListener('toggle', sendHeight, true);
-        window.addEventListener('resize', sendHeight);
-        document.fonts.ready.then(sendHeight);
-        sendHeight();
-        """
-        controller.addUserScript(WKUserScript(source: Self.parserScripts + "\n" + mount,
-                                             injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
-        webView.loadHTMLString(Self.document(kind: kind), baseURL: Self.baseURL)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     deinit {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "height", contentWorld: .defaultClient)
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: "renderError", contentWorld: .defaultClient)
     }
 
-    private static let parserScripts: String = {
+    /// The height of the content, which the host needs: measured on the content, not on `body.scrollHeight` (which
+    /// cannot shrink below the viewport), and again when an image, the font or a spoiler changes it.
+    private static let measureScript = """
+    const root = document.getElementById('content');
+    let scheduled = false;
+    const sendHeight = () => {
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        const style = getComputedStyle(document.body);
+        const height = Math.ceil(root.getBoundingClientRect().height +
+          parseFloat(style.paddingTop) + parseFloat(style.paddingBottom));
+        window.webkit.messageHandlers.height.postMessage(height);
+      });
+    };
+    new ResizeObserver(sendHeight).observe(root);
+    root.addEventListener('load', sendHeight, true);
+    root.addEventListener('error', sendHeight, true);
+    root.addEventListener('toggle', sendHeight, true);
+    window.addEventListener('resize', sendHeight);
+    document.fonts.ready.then(sendHeight);
+    sendHeight();
+    """
+
+    fileprivate static let parserScripts: String = {
         ["marked.umd", "purify.min", "AniListRichText"].map { name in
             guard let url = Bundle.main.url(forResource: name, withExtension: "js", subdirectory: "RichText")
                     ?? Bundle.main.url(forResource: name, withExtension: "js"),
@@ -101,14 +109,28 @@ class AniListRichTextView: UIView, WKScriptMessageHandler, WKNavigationDelegate,
         }.joined(separator: "\n")
     }()
 
+    /// Nunito, the variable font of the interface, as WOFF2 (101 KB of 277: the same glyphs and the same weights).
     private static let fontCSS: String = {
-        guard let url = Bundle.main.url(forResource: "Nunito-Variable", withExtension: "ttf", subdirectory: "Fonts")
-                ?? Bundle.main.url(forResource: "Nunito-Variable", withExtension: "ttf"),
-              let data = try? Data(contentsOf: url) else { return "" }
-        return "@font-face { font-family: Nunito; src: url(data:font/ttf;base64,\(data.base64EncodedString())) format('truetype'); font-weight: 200 1000; }"
+        func data(_ name: String, _ ext: String, _ folder: String) -> Data? {
+            guard let url = Bundle.main.url(forResource: name, withExtension: ext, subdirectory: folder)
+                    ?? Bundle.main.url(forResource: name, withExtension: ext) else { return nil }
+            return try? Data(contentsOf: url)
+        }
+        if let woff = data("Nunito-Variable", "woff2", "RichText") {
+            return "@font-face { font-family: Nunito; src: url(data:font/woff2;base64,\(woff.base64EncodedString())) format('woff2'); font-weight: 200 1000; }"
+        }
+        guard let ttf = data("Nunito-Variable", "ttf", "Fonts") else { return "" }
+        return "@font-face { font-family: Nunito; src: url(data:font/ttf;base64,\(ttf.base64EncodedString())) format('truetype'); font-weight: 200 1000; }"
     }()
 
-    private static func document(kind: Kind) -> String {
+    private static func plainText(_ text: String) -> String {
+        let escaped = text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        return "<p>\(escaped)</p>"
+    }
+
+    private static func document(kind: Kind, body: String) -> String {
         let padding = kind == .profile ? 8 : (kind == .thread ? 12 : 0)
         let color = kind == .profile ? "98%" : "50%"   // text-muted-foreground
         let size = kind == .thread ? 16 : 14
@@ -126,17 +148,12 @@ class AniListRichTextView: UIView, WKScriptMessageHandler, WKNavigationDelegate,
         p, details { margin-block-start:.5em; margin-block-end:.5em; white-space:pre-wrap; }
         img, video { max-width:100%; -webkit-user-drag:none; }
         summary { font-weight:bold; cursor:pointer; list-style:none; background:#0003; display:inline-block; padding:.4em .8em; border-radius:.5em; margin-block-end:.5em; }
-        </style></head><body><div id="content"></div></body></html>
+        </style></head><body><div id="content">\(body)</div></body></html>
         """
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame else { return }
-        if message.name == "renderError" {
-            // Do not log user HTML/profile text.
-            NSLog("[AniListRichText] Rendering failed; displaying plain text")
-            return
-        }
         guard message.name == "height", let value = message.body as? NSNumber else { return }
         let measured = value.doubleValue
         guard measured.isFinite, measured >= 0 else { return }
@@ -148,6 +165,15 @@ class AniListRichTextView: UIView, WKScriptMessageHandler, WKNavigationDelegate,
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         documentLoaded = true
+    }
+
+    /// All the bodies share one web content process: when the system ends it, every one of them is blank, and each
+    /// draws its page again.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard !loadedDocument.isEmpty else { return }
+        documentLoaded = false
+        lastHeight = -1
+        webView.loadHTMLString(loadedDocument, baseURL: Self.baseURL)
     }
 
     private func openLink(_ url: URL) {
@@ -198,6 +224,87 @@ private final class RichTextWeakMessageHandler: NSObject, WKScriptMessageHandler
     init(_ target: WKScriptMessageHandler) { self.target = target }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         target?.userContentController(userContentController, didReceive: message)
+    }
+}
+
+/// The one web view that parses and sanitises: marked, DOMPurify and the AniList syntax of `AniListRichText.js` are
+/// loaded here and nowhere else. It is never shown. Raw user content goes in as an argument, never into a script's
+/// text, and what comes out is DOMPurify's output.
+final class RichTextRenderer: NSObject, WKNavigationDelegate {
+    static let shared = RichTextRenderer()
+    private let webView: WKWebView
+    private var ready = false
+    private var failed = false
+    private var pending: [(content: String, completion: (String?) -> Void)] = []
+
+    private override init() {
+        let configuration = WKWebViewConfiguration()
+        configuration.processPool = AniListRichTextView.processPool
+        configuration.websiteDataStore = AniListRichTextView.dataStore
+        configuration.userContentController.addUserScript(WKUserScript(source: AniListRichTextView.parserScripts,
+                                                                       injectionTime: .atDocumentEnd,
+                                                                       forMainFrameOnly: true, in: .defaultClient))
+        webView = WKWebView(frame: .zero, configuration: configuration)
+        super.init()
+        webView.navigationDelegate = self
+        load()
+    }
+
+    private func load() {
+        ready = false
+        webView.loadHTMLString("<!doctype html><html><body></body></html>", baseURL: AniListRichTextView.baseURL)
+    }
+
+    /// The sanitised HTML of `content`, or nil when the parser could not run.
+    func render(_ content: String, completion: @escaping (String?) -> Void) {
+        if failed {
+            completion(nil)
+        } else if ready {
+            evaluate(content, completion)
+        } else {
+            pending.append((content, completion))
+        }
+    }
+
+    private func evaluate(_ content: String, _ completion: @escaping (String?) -> Void) {
+        webView.callAsyncJavaScript("return window.HayaseRichText.render(content)", arguments: ["content": content],
+                                    in: nil, in: .defaultClient) { result in
+            switch result {
+            case .success(let value):
+                completion(value as? String)
+            case .failure:
+                NSLog("[AniListRichText] Rendering failed; displaying plain text")   // never the text itself
+                completion(nil)
+            }
+        }
+    }
+
+    private func flush(failing: Bool) {
+        let waiting = pending
+        pending = []
+        for item in waiting {
+            if failing { item.completion(nil) } else { evaluate(item.content, item.completion) }
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        ready = true
+        flush(failing: false)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        failed = true
+        flush(failing: true)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        failed = true
+        flush(failing: true)
+    }
+
+    /// The process is shared with the bodies: when it ends, the parser is loaded again.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        load()
     }
 }
 
